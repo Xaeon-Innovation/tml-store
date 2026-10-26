@@ -58,7 +58,9 @@ Restart `npm run dev` — the “Demo mode” badge disappears and orders now go
 The owner manages products in the dashboard: **Products** tab → *Add product*, or click a product to edit it. The form covers name, collection, arrangement (single / three / five panels), description, photos, sizes and prices, position in the shop, *Show in the shop* and *Feature on the homepage*.
 
 - **Photos** upload straight to the `product-images` storage bucket. Big phone photos are scaled down to 3000 px on the long side first. The first photo is the main one. For three/five-panel products, upload the **whole** artwork as one wide photo; the site splits it across the panels.
-- The **link name** (e.g. `neon-shrine`, used in `#/p/neon-shrine`) is filled in from the name and can't be changed after the product is created.
+- The **link name** (e.g. `neon-shrine`, used in `/p/neon-shrine`) is filled in from the name and can't be changed after the product is created.
+- **Sizes:** click a standard size (30 × 40, 40 × 60, 50 × 70 … for single frames; matching totals for 3- and 5-panel pieces) to add it with the dimensions filled in, then type the price. Any size can be edited or added by hand.
+- **Custom sizes:** tick *Customers can ask for a custom size* and the product page offers a "Custom size" choice where the customer types width × height (10–600 cm). Those orders arrive marked **Needs price**: call the customer, agree the price, and enter it on the order (*Agreed price → Save price*). The order subtotal, and the revenue once it's Completed, then include it.
 - Removing a photo or deleting a product also deletes its files from storage. Past orders keep their own copy of names and prices, so deleting a product doesn't change them. To take a product down for a while, untick *Show in the shop* instead.
 
 Collections are still edited in **Supabase → Table Editor → collections**. Products can also be edited there; the columns are:
@@ -73,18 +75,31 @@ Collections are still edited in **Supabase → Table Editor → collections**. P
 | `images` | `{https://…/photo1.jpg, https://…/photo2.jpg}` — first is the main picture |
 | `featured` | shows on the homepage |
 | `visible` | untick to hide without deleting |
+| `allow_custom` | customers may ask for their own width × height |
 
 The order of products follows `sort` (small numbers first).
 
-## 5. Put it online (Cloudflare Pages, free)
+## 5. Put it online (Cloudflare Workers, free)
+
+The shop uses real page addresses (`/p/neon-shrine`) for search engines, plus a small Worker (`worker/index.js`, configured in `wrangler.jsonc`) that gives each page its own title, description and structured data. Cloudflare runs both.
 
 1. Push this folder to a GitHub repository.
-2. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git** → pick the repo.
-3. Build command `npm run build`, output folder `dist`.
-4. Under **Environment variables** add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-5. Deploy, then **Custom domains** → add the client's domain (buy it through Cloudflare Registrar or anywhere).
+2. Cloudflare dashboard → **Workers & Pages → Create → Import a repository** → pick the repo. The project name must match `"name"` in `wrangler.jsonc` (`tml-store`); change one or the other for a new client.
+3. Build command `npm run build`, deploy command `npx wrangler deploy` (the defaults).
+4. **Settings → Build → Variables and secrets**: add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. They are needed while building, not at runtime. Without them the live site shows *Demo mode*.
+5. **Settings → Domains & Routes**: enable `workers.dev` for a free address, and/or add the client's domain (buy it through Cloudflare Registrar or anywhere).
 
-Every push to GitHub redeploys the site. Netlify or Vercel work the same way.
+Every push to GitHub redeploys the site. Products and orders live in Supabase, so changing them never needs a redeploy.
+
+Other hosts (Netlify, shared hosting…) can serve `dist/` too, but they must send `index.html` for unknown paths, and the per-page SEO, sitemap.xml and robots.txt come from the Worker, so they'd be missing.
+
+## Search engines & AI search
+
+- Titles, descriptions, Arabic keywords and the Arabic line in the footer are in `store.config.js → seo`. Product pages use each product's name, description and prices automatically.
+- When the domain is live, set `seo.siteUrl` (e.g. `https://tmlstore.com`) and push. Search engines are then told that's the main address, and the spare `workers.dev` address is kept out of results.
+- **Google Search Console:** add the domain (verify by DNS, or paste the HTML-tag code into `seo.googleVerification`), then **Sitemaps → add** `sitemap.xml`.
+- **Bing Webmaster Tools:** import the site from Google Search Console, or add it and paste the meta-tag code into `seo.bingVerification`; submit `https://<domain>/sitemap.xml`. Bing also feeds ChatGPT search and Copilot.
+- Generated automatically, always up to date (cached ~5 minutes): `/sitemap.xml` (every collection and product, with photos), `/robots.txt` (everything allowed except the dashboard and checkout), `/llms.txt` (a plain summary of the shop and its products for AI assistants).
 
 ## 6. Order emails (optional)
 
@@ -115,5 +130,5 @@ Sends the owner an email for every new order or custom request.
 ## Good to know
 
 - Supabase can pause free projects that have had no activity for a while. A shop with regular visitors normally stays active; if it's paused, it's restored from the Supabase dashboard. Check Supabase's current free-plan terms before launch.
-- The shop uses links like `/#/p/neon-shrine`, so it works on any static host with no extra setup.
+- Shop links are real paths (`/p/neon-shrine`); old `#/p/…` links redirect automatically. The dashboard keeps `#/…` links and is never indexed.
 - To start a new client: copy the folder, edit `store.config.js`, create a new Supabase project, and repeat steps 3–5.

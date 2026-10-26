@@ -2,13 +2,23 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import config from '../config/store.config.js';
 import { fetchCatalog, isDemo } from '../lib/api.js';
 import { money, plural } from '../lib/format.js';
-import { navigate, useRoute } from '../lib/router.js';
+import { interceptLinks, navigate, useRoute } from '../lib/router.js';
+import { pageMeta } from '../lib/seo.js';
 import { Art, Icon, decorate, visibleCollections } from './shared.jsx';
 import { Catalogue, Home, Product } from './pages.jsx';
 import { Checkout, Confirm, Custom, CustomDone } from './forms.jsx';
 
 const BAG_KEY = 'bag_v1';
 function loadBag() { try { const b = JSON.parse(localStorage.getItem(BAG_KEY)); return Array.isArray(b) ? b : []; } catch (e) { return []; } }
+// bag entry: { productId, sizeIdx, qty } or, for a custom size, { productId, custom: { w, h }, qty }
+const bagKey = (b) => b.productId + '|' + (b.custom ? 'c' + b.custom.w + 'x' + b.custom.h : b.sizeIdx);
+const customLabel = (c) => 'Custom size · ' + c.w + ' × ' + c.h + ' cm';
+
+function setHead(selector, make, attr, value) {
+  let el = document.head.querySelector(selector);
+  if (!el) { el = make(); document.head.appendChild(el); }
+  el.setAttribute(attr, value);
+}
 
 export default function StoreApp() {
   const route = useRoute();
@@ -26,7 +36,17 @@ export default function StoreApp() {
   };
   useEffect(load, []);
   useEffect(() => { try { localStorage.setItem(BAG_KEY, JSON.stringify(bag)); } catch (e) { /* ignore */ } }, [bag]);
-  useEffect(() => { document.title = config.brand.fullName; document.documentElement.style.setProperty('--accent', config.theme.accent); }, []);
+  useEffect(() => { document.documentElement.style.setProperty('--accent', config.theme.accent); }, []);
+  // title, description and canonical for the current page (the Worker sends the same on first load)
+  useEffect(() => {
+    if (cat.status === 'loading') return;
+    const m = pageMeta(route, cat.status === 'ready' ? cat : null, config, (config.seo.siteUrl || window.location.origin).replace(/\/+$/, ''));
+    document.title = m.title;
+    setHead('meta[name="description"]', () => Object.assign(document.createElement('meta'), { name: 'description' }), 'content', m.description);
+    setHead('meta[name="robots"]', () => Object.assign(document.createElement('meta'), { name: 'robots' }), 'content', m.noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large');
+    if (m.canonical) setHead('link[rel="canonical"]', () => Object.assign(document.createElement('link'), { rel: 'canonical' }), 'href', m.canonical);
+    else document.head.querySelector('link[rel="canonical"]')?.remove();
+  }, [route.name, route.arg, cat]);
 
   // route change: close layers and scroll to the top (or to the craft section)
   useEffect(() => {
@@ -49,28 +69,32 @@ export default function StoreApp() {
   const byId = (id) => products.find((p) => p.id === id);
 
   // bag lines (skips products that are no longer available)
+  // custom sizes have no price yet (unit null): the owner quotes it by phone
   const lines = bag.map((b) => {
     const p = byId(b.productId); if (!p) return null;
+    const base = { key: bagKey(b), productId: p.id, qty: b.qty, product: { id: p.id, layout: p.layout, art: p.art, images: p.images }, name: p.name, lay: p.lay };
+    if (b.custom) return p.allow_custom ? { ...base, custom: b.custom, sizeLabel: customLabel(b.custom), unit: null, lineTotal: 0 } : null;
     const s = p.sizes[b.sizeIdx]; if (!s) return null;
-    return { key: b.productId + '|' + b.sizeIdx, productId: p.id, sizeIdx: b.sizeIdx, qty: b.qty, product: { id: p.id, layout: p.layout, art: p.art, images: p.images },
-      name: p.name, sizeLabel: [s.label, s.total].filter(Boolean).join(' · '), unit: Number(s.price), lineTotal: Number(s.price) * b.qty, lay: p.lay };
+    return { ...base, sizeIdx: b.sizeIdx, sizeLabel: [s.label, s.total !== s.label ? s.total : ''].filter(Boolean).join(' · '), unit: Number(s.price), lineTotal: Number(s.price) * b.qty };
   }).filter(Boolean);
   const count = lines.reduce((a, l) => a + l.qty, 0);
   const subtotal = lines.reduce((a, l) => a + l.lineTotal, 0);
+  const hasCustom = lines.some((l) => l.custom);
 
-  const addToBag = (p, sizeIdx, qty) => {
+  const addToBag = (p, sizeIdx, qty, custom) => {
+    const entry = custom ? { productId: p.id, custom, qty } : { productId: p.id, sizeIdx, qty };
     setBag((cur) => {
-      const i = cur.findIndex((b) => b.productId === p.id && b.sizeIdx === sizeIdx);
-      if (i < 0) return cur.concat([{ productId: p.id, sizeIdx, qty }]);
+      const i = cur.findIndex((b) => bagKey(b) === bagKey(entry));
+      if (i < 0) return cur.concat([entry]);
       const n = cur.slice(); n[i] = { ...n[i], qty: Math.min(10, n[i].qty + qty) }; return n;
     });
     clearTimeout(toastT.current); clearTimeout(bumpT.current);
-    setToast(p.name + (p.sizes[sizeIdx] && p.sizes.length > 1 ? ' · ' + p.sizes[sizeIdx].label : '') + ' · Qty ' + qty); setBump(true);
+    setToast(p.name + (custom ? ' · ' + customLabel(custom) : p.sizes[sizeIdx] && p.sizes.length > 1 ? ' · ' + p.sizes[sizeIdx].label : '') + ' · Qty ' + qty); setBump(true);
     toastT.current = setTimeout(() => setToast(null), 4200);
     bumpT.current = setTimeout(() => setBump(false), 600);
   };
-  const setQty = (key, d) => setBag((cur) => cur.map((b) => (b.productId + '|' + b.sizeIdx === key ? { ...b, qty: Math.max(1, Math.min(10, b.qty + d)) } : b)));
-  const remove = (key) => { setBag((cur) => cur.filter((b) => b.productId + '|' + b.sizeIdx !== key)); setTimeout(() => bagClose.current && bagClose.current.focus(), 0); };
+  const setQty = (key, d) => setBag((cur) => cur.map((b) => (bagKey(b) === key ? { ...b, qty: Math.max(1, Math.min(10, b.qty + d)) } : b)));
+  const remove = (key) => { setBag((cur) => cur.filter((b) => bagKey(b) !== key)); setTimeout(() => bagClose.current && bagClose.current.focus(), 0); };
 
   const onPlaced = (o) => {
     try { sessionStorage.setItem('order_' + o.ref, JSON.stringify(o)); } catch (e) { /* ignore */ }
@@ -99,28 +123,28 @@ export default function StoreApp() {
   } else if (r === 'home' || r === 'craft') page = <Home products={products} collections={collections} />;
   else if (r === 'shop') page = <Catalogue products={products} collections={collections} collId={route.arg} />;
   else if (r === 'p') page = <Product product={byId(route.arg)} products={products} onAdd={addToBag} layerOpen={layerOpen} />;
-  else if (r === 'checkout') page = <Checkout lines={lines} subtotal={subtotal} onPlaced={onPlaced} openBag={(e) => openLayer(setBagOpen)} />;
+  else if (r === 'checkout') page = <Checkout lines={lines} subtotal={subtotal} hasCustom={hasCustom} onPlaced={onPlaced} openBag={(e) => openLayer(setBagOpen)} />;
   else if (r === 'order' && route.arg) page = <Confirm refCode={route.arg} />;
   else if (r === 'custom' && config.features.customOrders) page = route.arg ? <CustomDone refCode={route.arg} /> : <Custom />;
   else {
     page = (
       <section className="wrap status-bar">
         <p className="label">404</p><h1 className="display h1">Page not found.</h1>
-        <a className="btn btn-primary" href="#/">Back to home</a>
+        <a className="btn btn-primary" href="/">Back to home</a>
       </section>
     );
   }
 
   return (
-    <div className="tml">
+    <div className="tml" onClick={interceptLinks}>
       <a className="skip" href="#main" onClick={(e) => { e.preventDefault(); const m = document.getElementById('main'); if (m) { m.setAttribute('tabindex', '-1'); m.focus(); } }}>Skip to content</a>
       <header className="hdr">
         <div className="wrap hdr-in">
-          <a className="logo" href="#/" aria-label={config.brand.fullName + ' — home'}><span className="logo-mark">{config.brand.mark}</span><span className="logo-sub">{config.brand.sub}</span></a>
+          <a className="logo" href="/" aria-label={config.brand.fullName + ' — home'}><span className="logo-mark">{config.brand.mark}</span><span className="logo-sub">{config.brand.sub}</span></a>
           <nav className="nav" aria-label="Primary">
-            <a className={navCls(r === 'shop' || r === 'p')} href="#/shop" aria-current={r === 'shop' ? 'page' : undefined}>Collections</a>
-            {config.home.craft && config.home.craft.show ? <a className="nav-link" href="#/craft">Our Craft</a> : null}
-            {config.features.customOrders ? <a className={navCls(r === 'custom')} href="#/custom" aria-current={r === 'custom' ? 'page' : undefined}>Custom Orders</a> : null}
+            <a className={navCls(r === 'shop' || r === 'p')} href="/shop" aria-current={r === 'shop' ? 'page' : undefined}>Collections</a>
+            {config.home.craft && config.home.craft.show ? <a className="nav-link" href="/craft">Our Craft</a> : null}
+            {config.features.customOrders ? <a className={navCls(r === 'custom')} href="/custom" aria-current={r === 'custom' ? 'page' : undefined}>Custom Orders</a> : null}
           </nav>
           <div className="hdr-actions">
             <button className="icon-btn" type="button" onClick={() => openLayer(setBagOpen)} aria-label={count ? 'Bag, ' + plural(count, 'item') : 'Bag, empty'} aria-haspopup="dialog">
@@ -139,6 +163,7 @@ export default function StoreApp() {
             <div className="ftr-brand">
               <span className="logo"><span className="logo-mark">{config.brand.mark}</span><span className="logo-sub">{config.brand.sub}</span></span>
               <p>{config.brand.footerLine}</p>
+              {config.seo.arabicLine ? <p className="ftr-ar" lang="ar" dir="rtl">{config.seo.arabicLine}</p> : null}
             </div>
             <ContactCol />
             {config.social.some((s) => s.url) ? (
@@ -146,13 +171,16 @@ export default function StoreApp() {
             ) : null}
             <div className="ftr-col">
               <h3>Shop</h3>
-              <a href="#/shop">All pieces</a>
-              {config.features.customOrders ? <a href="#/custom">Custom orders</a> : null}
+              <a href="/shop">All pieces</a>
+              {config.features.customOrders ? <a href="/custom">Custom orders</a> : null}
             </div>
           </div>
           <div className="ftr-base">
             <span className="label">© {new Date().getFullYear()} {config.brand.fullName}</span>
             <span className="label">Prices in {config.currency} · Cash on delivery</span>
+            <a className="made-by" href="https://xaeons.com/" target="_blank" rel="noopener">
+              <span className="label">Website by</span><img src="/logo.png" alt="Xaeon" width="50" height="24" loading="lazy" />
+            </a>
           </div>
         </div>
       </footer>
@@ -169,7 +197,7 @@ export default function StoreApp() {
             <div className="drawer-empty">
               <p className="display" style={{ fontSize: 30 }}>Your bag is empty.</p>
               <p className="muted">Explore the collections and add a piece you love.</p>
-              <a className="btn btn-ghost" href="#/shop" onClick={() => setBagOpen(false)}>Explore collections</a>
+              <a className="btn btn-ghost" href="/shop" onClick={() => setBagOpen(false)}>Explore collections</a>
             </div>
           ) : (
             <ul>
@@ -177,9 +205,9 @@ export default function StoreApp() {
                 <li key={l.key} className="bag-line">
                   <span className="mini"><Art product={l.product} /></span>
                   <div className="bag-info">
-                    <div className="bag-top"><span>{l.name}</span><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{money(l.lineTotal)}</span></div>
+                    <div className="bag-top"><span>{l.name}</span><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{l.custom ? 'Price by phone' : money(l.lineTotal)}</span></div>
                     <p className="bag-opts">{l.sizeLabel}</p>
-                    <p className="bag-opts">{config.features.multiPanel ? l.lay.short + ' · ' : ''}{money(l.unit)} each</p>
+                    <p className="bag-opts">{config.features.multiPanel ? l.lay.short + ' · ' : ''}{l.custom ? 'we call you with the price' : money(l.unit) + ' each'}</p>
                     <div className="bag-ctrl">
                       <div className="qty" role="group" aria-label={'Quantity for ' + l.name}>
                         <button type="button" onClick={() => setQty(l.key, -1)} disabled={l.qty <= 1} aria-label="Decrease quantity"><Icon.minus s={12} /></button>
@@ -196,9 +224,9 @@ export default function StoreApp() {
         </div>
         {lines.length ? (
           <div className="drawer-foot">
-            <div className="sum-tot" style={{ borderTop: 0, paddingTop: 0 }}><span>Subtotal</span><strong style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{money(subtotal)}</strong></div>
-            <p className="small muted">Delivery fee isn’t included — we confirm it with you by phone. You pay cash on delivery.</p>
-            <a className="btn btn-primary btn-block" href="#/checkout" onClick={() => setBagOpen(false)}>Continue to order request</a>
+            <div className="sum-tot" style={{ borderTop: 0, paddingTop: 0 }}><span>Subtotal{hasCustom ? ' + custom size' : ''}</span><strong style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{money(subtotal)}</strong></div>
+            <p className="small muted">{hasCustom ? 'We call you with the price of the custom size. ' : ''}Delivery fee isn’t included — we confirm it with you by phone. You pay cash on delivery.</p>
+            <a className="btn btn-primary btn-block" href="/checkout" onClick={() => setBagOpen(false)}>Continue to order request</a>
           </div>
         ) : null}
       </aside>
@@ -209,13 +237,13 @@ export default function StoreApp() {
           <button className="icon-btn" type="button" ref={menuClose} onClick={() => closeLayer(setMenuOpen)} aria-label="Close menu"><Icon.close /></button>
         </div>
         <nav className="menu-nav" aria-label="Menu">
-          <a className="menu-big" href="#/shop">Collections</a>
-          {config.home.craft && config.home.craft.show ? <a className="menu-big" href="#/craft">Our Craft</a> : null}
-          {config.features.customOrders ? <a className="menu-big" href="#/custom">Custom Orders</a> : null}
+          <a className="menu-big" href="/shop">Collections</a>
+          {config.home.craft && config.home.craft.show ? <a className="menu-big" href="/craft">Our Craft</a> : null}
+          {config.features.customOrders ? <a className="menu-big" href="/custom">Custom Orders</a> : null}
         </nav>
         <div className="menu-sub">
           <p className="label" style={{ marginBottom: 6 }}>Browse</p>
-          {cols.map((c) => <a key={c.id} href={'#/shop/' + encodeURIComponent(c.id)}><span>{c.name}</span></a>)}
+          {cols.map((c) => <a key={c.id} href={'/shop/' + encodeURIComponent(c.id)}><span>{c.name}</span></a>)}
         </div>
       </div>
 

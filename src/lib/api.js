@@ -91,6 +91,15 @@ export async function updateOrderStatus(id, status) {
   return data;
 }
 
+// Price agreed by phone for a custom-size line (index `line` in order.items).
+// The database recalculates the subtotal; returns the updated order.
+export async function setCustomPrice(orderId, line, unitPrice) {
+  if (isDemo) return demo.setCustomPrice(orderId, line, unitPrice);
+  const { data, error } = await supabase.rpc('price_custom_line', { p_order: orderId, p_line: line, p_unit_price: unitPrice });
+  if (error) throw error;
+  return data;
+}
+
 export async function fetchRequests() {
   if (isDemo) return demo.requests();
   const { data, error } = await supabase.from('custom_requests').select('*').order('created_at', { ascending: false }).limit(500);
@@ -191,12 +200,17 @@ function makeRef(prefix, date) {
 function priceItems(items, list = demo.products()) {
   return items.map((it) => {
     const p = list.find((x) => x.id === it.product_id);
+    const qty = Math.max(1, Math.min(10, it.qty | 0));
+    if (it.custom) {
+      if (!p || !p.allow_custom) throw new Error('A product in your bag is no longer available.');
+      return { product_id: p.id, name: p.name, size_label: 'Custom size', size_total: it.custom.width + ' × ' + it.custom.height + ' cm', unit_price: null, qty, line_total: null, custom: true };
+    }
     const s = p && p.sizes[it.size_index];
     if (!s) throw new Error('A product in your bag is no longer available.');
-    const qty = Math.max(1, Math.min(10, it.qty | 0));
     return { product_id: p.id, name: p.name, size_label: s.label, size_total: s.total, unit_price: s.price, qty, line_total: s.price * qty };
   });
 }
+const sumLines = (lines) => lines.reduce((a, l) => a + (l.line_total || 0), 0);
 
 const demo = {
   load(key, seed) {
@@ -223,7 +237,7 @@ const demo = {
   async placeOrder(customer, items) {
     await wait(700);
     const lines = priceItems(items);
-    const subtotal = lines.reduce((a, l) => a + l.line_total, 0);
+    const subtotal = sumLines(lines);
     const o = { id: crypto.randomUUID(), ref: makeRef(config.orderRefPrefix), customer_name: customer.name, phone: customer.phone, email: customer.email || '',
       region: customer.region, address: customer.address, notes: customer.notes || '', items: lines, subtotal, status: 'New', created_at: new Date().toISOString(), completed_at: null };
     this.save('demo_orders_v1', [o].concat(this.orders()));
@@ -237,6 +251,19 @@ const demo = {
       out = { ...o, status, completed_at: status === 'Completed' ? (o.completed_at || new Date().toISOString()) : null };
       return out;
     });
+    this.save('demo_orders_v1', list);
+    return out;
+  },
+  async setCustomPrice(id, line, unitPrice) {
+    await wait(200);
+    let out;
+    const list = this.orders().map((o) => {
+      if (o.id !== id || !o.items[line] || !o.items[line].custom) return o;
+      const items = o.items.map((it, i) => (i === line ? { ...it, unit_price: unitPrice, line_total: unitPrice * it.qty } : it));
+      out = { ...o, items, subtotal: sumLines(items) };
+      return out;
+    });
+    if (!out) throw new Error('not_found');
     this.save('demo_orders_v1', list);
     return out;
   },

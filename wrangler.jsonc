@@ -1,0 +1,21 @@
+// Cloudflare Workers deployment. Workers Builds runs `npx wrangler deploy` on every
+// push to GitHub. The build variables VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+// must be set in Cloudflare → the Worker → Settings → Build → Variables and secrets.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tml-store",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-09-01",
+  "build": { "command": "npm run build" },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    // shop pages are real URLs (/p/neon-shrine); unknown paths get index.html
+    "not_found_handling": "single-page-application",
+    // only these go through worker/index.js (page tags, sitemap, robots, llms.txt)
+    "run_worker_first": ["/", "/craft", "/shop", "/shop/*", "/p/*", "/custom", "/custom/*", "/checkout", "/order/*", "/sitemap.xml", "/robots.txt", "/llms.txt"]
+  },
+  "keep_vars": true,
+  "observability": { "enabled": true }
+}

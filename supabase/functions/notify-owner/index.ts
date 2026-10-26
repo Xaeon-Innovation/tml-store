@@ -27,15 +27,16 @@ Deno.serve(async (req) => {
   let subject: string, html: string;
 
   if (body.table === 'orders') {
+    const custom = (r.items || []).some((it: any) => it.custom);
     const items = (r.items || []).map((it: any) =>
-      `<tr><td style="padding:4px 12px 4px 0">${esc(it.name)} × ${esc(it.qty)}<br><small style="color:#666">${esc(it.size_label)} ${esc(it.size_total)}</small></td><td style="padding:4px 0;text-align:right">${money(it.line_total)}</td></tr>`).join('');
-    subject = `New order ${r.ref} — ${money(r.subtotal)}`;
+      `<tr><td style="padding:4px 12px 4px 0">${esc(it.name)} × ${esc(it.qty)}<br><small style="color:#666">${esc(it.size_label)} ${esc(it.size_total)}</small></td><td style="padding:4px 0;text-align:right">${it.custom ? '<b style="color:#7A4600">Needs price</b>' : money(it.line_total)}</td></tr>`).join('');
+    subject = `New order ${r.ref} — ${money(r.subtotal)}${custom ? ' + custom size' : ''}`;
     html = `<h2 style="margin:0 0 12px">New order ${esc(r.ref)}</h2>
       <p><b>${esc(r.customer_name)}</b><br>${esc(r.phone)}${r.email ? '<br>' + esc(r.email) : ''}<br>${esc(r.region)} — ${esc(r.address)}</p>
       ${r.notes ? `<p><i>${esc(r.notes)}</i></p>` : ''}
       <table style="border-collapse:collapse;min-width:280px">${items}
       <tr><td style="padding:8px 12px 0 0;border-top:1px solid #ddd"><b>Subtotal</b></td><td style="padding:8px 0 0;border-top:1px solid #ddd;text-align:right"><b>${money(r.subtotal)}</b></td></tr></table>
-      <p style="color:#666">Cash on delivery. Call the customer to confirm the order and delivery fee.</p>`;
+      <p style="color:#666">Cash on delivery. Call the customer to confirm the order and delivery fee.${custom ? ' Agree the price of the custom size, then enter it on the order in the dashboard.' : ''}</p>`;
   } else if (body.table === 'custom_requests') {
     subject = `New custom request ${r.ref} — ${r.name}`;
     html = `<h2 style="margin:0 0 12px">New custom request ${esc(r.ref)}</h2>

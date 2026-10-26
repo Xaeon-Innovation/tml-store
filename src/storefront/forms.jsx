@@ -32,7 +32,7 @@ function SummaryLines({ lines }) {
         <li key={l.key} className="sum-line">
           <span className="mini">{l.product ? <Art product={l.product} /> : null}</span>
           <span className="sum-meta"><span>{l.name} × {l.qty}</span><span>{l.sizeLabel}</span></span>
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{money(l.lineTotal)}</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{l.custom ? 'Price by phone' : money(l.lineTotal)}</span>
         </li>
       ))}
     </ul>
@@ -42,7 +42,7 @@ function SummaryLines({ lines }) {
 // =====================================================================
 // CHECKOUT (order request, cash on delivery)
 // =====================================================================
-export function Checkout({ lines, subtotal, onPlaced, openBag }) {
+export function Checkout({ lines, subtotal, hasCustom, onPlaced, openBag }) {
   const f = useForm({ name: '', phone: '', email: '', region: '', address: '', notes: '', company: '' });
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState('');
@@ -64,7 +64,9 @@ export function Checkout({ lines, subtotal, onPlaced, openBag }) {
     setBusy(true); setFailed('');
     try {
       const customer = { name: v.name.trim(), phone: v.phone.trim(), email: v.email.trim(), region: v.region, address: v.address.trim(), notes: v.notes.trim() };
-      const res = await placeOrder(customer, lines.map((l) => ({ product_id: l.productId, size_index: l.sizeIdx, qty: l.qty })));
+      const res = await placeOrder(customer, lines.map((l) => (l.custom
+        ? { product_id: l.productId, qty: l.qty, custom: { width: l.custom.w, height: l.custom.h } }
+        : { product_id: l.productId, size_index: l.sizeIdx, qty: l.qty })));
       onPlaced({ ref: res.ref, subtotal: res.subtotal, lines, phone: customer.phone, region: customer.region, name: customer.name });
     } catch (err) {
       setFailed(err.message || 'Something went wrong. Please try again.');
@@ -83,7 +85,7 @@ export function Checkout({ lines, subtotal, onPlaced, openBag }) {
         <div className="empty">
           <h2 className="display" style={{ fontSize: 32 }}>Your bag is empty.</h2>
           <p>Add a piece to your bag to send an order request.</p>
-          <div className="empty-actions"><a className="btn btn-primary" href="#/shop">Explore collections</a></div>
+          <div className="empty-actions"><a className="btn btn-primary" href="/shop">Explore collections</a></div>
         </div>
       ) : (
         <div className="co-grid">
@@ -115,8 +117,9 @@ export function Checkout({ lines, subtotal, onPlaced, openBag }) {
           <aside className="summary" aria-labelledby="sum-h">
             <h2 id="sum-h">Order summary</h2>
             <SummaryLines lines={lines} />
+            {hasCustom ? <div className="sum-row"><span>Custom size</span><span>Priced by phone</span></div> : null}
             <div className="sum-row"><span>Delivery</span><span>Confirmed by phone</span></div>
-            <div className="sum-tot"><span>Subtotal</span><strong style={{ fontWeight: 500 }}>{money(subtotal)}</strong></div>
+            <div className="sum-tot"><span>Subtotal{hasCustom ? ' (without custom size)' : ''}</span><strong style={{ fontWeight: 500 }}>{money(subtotal)}</strong></div>
             <button className="rm" type="button" onClick={openBag} style={{ justifySelf: 'start' }}>Edit bag</button>
           </aside>
         </div>
@@ -150,10 +153,11 @@ export function Confirm({ refCode }) {
           <div className="summary">
             <h2>Submitted items</h2>
             <SummaryLines lines={o.lines} />
+            {o.lines.some((l) => l.custom) ? <p className="small muted">We’ll call you with the price of the custom size before anything is made.</p> : null}
             <div className="sum-tot"><span>Subtotal · before delivery</span><strong style={{ fontWeight: 500 }}>{money(o.subtotal)}</strong></div>
           </div>
         ) : null}
-        <a className="btn btn-ghost" href="#/shop">Continue browsing</a>
+        <a className="btn btn-ghost" href="/shop">Continue browsing</a>
       </div>
     </section>
   );
@@ -306,8 +310,8 @@ export function CustomDone({ refCode }) {
         <div style={{ display: 'grid', gap: 8 }}><span className="label">Request reference</span><span className="ref">{refCode}</span></div>
         <p className="status-note"><Icon.info /><span>Nothing has been charged, and nothing is made until you’ve agreed a price with us.</span></p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-          <a className="btn btn-ghost" href="#/shop">Explore collections</a>
-          <a className="btn btn-ghost" href="#/">Back to home</a>
+          <a className="btn btn-ghost" href="/shop">Explore collections</a>
+          <a className="btn btn-ghost" href="/">Back to home</a>
         </div>
       </div>
     </section>

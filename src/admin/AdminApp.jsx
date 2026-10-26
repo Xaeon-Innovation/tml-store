@@ -44,6 +44,7 @@ function Login({ onIn }) {
           <button className="btn btn-primary" type="submit" disabled={busy} style={{ minHeight: 44 }}>{busy ? 'Signing in…' : 'Sign in'}</button>
           {api.isDemo ? <p className="note">Demo mode: any email and password will work. Connect Supabase to use real accounts.</p> : null}
         </form>
+        <a className="made-by" href="https://xaeons.com/" target="_blank" rel="noopener"><span>Website by</span><img src="/logo.png" alt="Xaeon" width="50" height="24" /></a>
       </main>
     </div>
   );
@@ -77,6 +78,10 @@ function Dashboard({ onOut }) {
     try { const u = await api.updateOrderStatus(o.id, status); setOrders((list) => list.map((x) => (x.id === o.id ? u : x))); flash(o.ref + ' marked ' + status + '.'); }
     catch (e) { flash('Couldn’t update the order. Try again.', true); }
   };
+  const setCustomPrice = async (o, line, price) => {
+    try { const u = await api.setCustomPrice(o.id, line, price); setOrders((list) => list.map((x) => (x.id === o.id ? u : x))); flash('Price saved. ' + o.ref + ' subtotal is now ' + money(u.subtotal) + '.'); return true; }
+    catch (e) { flash('Couldn’t save the price. Try again.', true); return false; }
+  };
   const setReqStatus = async (r, status) => {
     try { const u = await api.updateRequestStatus(r.id, status); setRequests((list) => list.map((x) => (x.id === r.id ? u : x))); flash(r.ref + ' marked ' + status + '.'); }
     catch (e) { flash('Couldn’t update the request. Try again.', true); }
@@ -92,7 +97,7 @@ function Dashboard({ onOut }) {
   let body;
   if (sec === 'products') body = <Products arg={route.arg} flash={flash} />;
   else if (!orders) body = loadErr ? <div className="card empty" role="alert"><p>{loadErr}</p><button className="btn btn-sm" type="button" onClick={refresh}>Try again</button></div> : <p className="loading">Loading orders…</p>;
-  else if (sec === 'orders' && route.arg) body = <OrderDetail order={orders.find((o) => o.id === route.arg)} onStatus={setOrderStatus} />;
+  else if (sec === 'orders' && route.arg) body = <OrderDetail order={orders.find((o) => o.id === route.arg)} onStatus={setOrderStatus} onPrice={setCustomPrice} />;
   else if (sec === 'orders') body = <OrdersList orders={orders} />;
   else if (sec === 'requests' && route.arg) body = <RequestDetail req={(requests || []).find((r) => r.id === route.arg)} onStatus={setReqStatus} />;
   else if (sec === 'requests') body = <RequestsList requests={requests || []} />;
@@ -224,6 +229,9 @@ function niceStep(max) {
 function compact(v) { return v >= 1e6 ? +(v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? +(v / 1e3).toFixed(1) + 'k' : String(v); }
 
 // ---------------------------------------------------------------- orders
+// a custom-size line arrives without a price; the owner enters it after calling the customer
+const needsPrice = (o) => (o.items || []).some((it) => it.custom && it.unit_price == null);
+
 function OrderRow({ o }) {
   return (
     <li>
@@ -232,7 +240,7 @@ function OrderRow({ o }) {
         <span className="row-main"><span className="ellip" style={{ fontWeight: 500 }}>{o.customer_name}</span><span className="muted small ellip">{o.region} · {o.phone}</span></span>
         <span className="row-side">
           <span className="muted small when">{dateTime(o.created_at)}</span>
-          <span className="num">{money(o.subtotal)}</span>
+          <span className="num">{money(o.subtotal)}{needsPrice(o) ? <span className="small muted"> + quote</span> : null}</span>
           <Pill s={o.status} />
         </span>
       </a>
@@ -269,12 +277,16 @@ function OrdersList({ orders }) {
   );
 }
 
-function OrderDetail({ order: o, onStatus }) {
+function OrderDetail({ order: o, onStatus, onPrice }) {
   const [busy, setBusy] = useState(false);
   if (!o) return <div className="card empty"><p>Order not found.</p><a className="btn btn-sm" href="#/orders">Back to orders</a></div>;
   const idx = ORDER_FLOW.indexOf(o.status), cancelled = o.status === 'Cancelled';
   const next = !cancelled && idx >= 0 && idx < ORDER_FLOW.length - 1 ? ORDER_FLOW[idx + 1] : null;
-  const run = async (s) => { setBusy(true); await onStatus(o, s); setBusy(false); };
+  const pending = needsPrice(o);
+  const run = async (s) => {
+    if (s === 'Completed' && pending && !window.confirm('The custom size in this order has no price yet, so it won’t count in your revenue. Mark it Completed anyway?')) return;
+    setBusy(true); await onStatus(o, s); setBusy(false);
+  };
   const intl = String(o.phone).replace(/[^\d+]/g, '');
   const wa = customerWhatsapp(o.phone);
   return (
@@ -321,16 +333,47 @@ function OrderDetail({ order: o, onStatus }) {
           <ul>
             {(o.items || []).map((it, i) => (
               <li key={i} className="item-line">
-                <span style={{ display: 'grid' }}><span style={{ fontWeight: 500 }}>{it.name} × {it.qty}</span><span className="muted small">{[it.size_label, it.size_total].filter(Boolean).join(' · ')} · {money(it.unit_price)} each</span></span>
-                <span className="num">{money(it.line_total)}</span>
+                <span style={{ display: 'grid', gap: 2 }}>
+                  <span style={{ fontWeight: 500 }}>{it.name} × {it.qty}</span>
+                  <span className="muted small">{[it.size_label, it.size_total].filter(Boolean).join(' · ')}{it.unit_price != null ? ' · ' + money(it.unit_price) + ' each' : ''}</span>
+                  {it.custom ? <CustomPrice key={o.id + i} id={'cp-' + i} item={it} onSave={(price) => onPrice(o, i, price)} /> : null}
+                </span>
+                <span className="num">{it.line_total != null ? money(it.line_total) : <span className="pill st-quoted">Needs price</span>}</span>
               </li>
             ))}
           </ul>
-          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #E4E2DD', paddingTop: 12, fontWeight: 600 }}><span>Subtotal</span><span className="num">{money(o.subtotal)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #E4E2DD', paddingTop: 12, fontWeight: 600 }}><span>Subtotal{pending ? ' (custom size not priced yet)' : ''}</span><span className="num">{money(o.subtotal)}</span></div>
           <p className="small muted">Delivery fee is agreed with the customer by phone and paid on delivery.</p>
         </section>
       </div>
     </>
+  );
+}
+
+// Price for a custom-size line, agreed with the customer by phone. Saving it
+// updates the order subtotal (and so the revenue once the order is Completed).
+function CustomPrice({ id, item, onSave }) {
+  const [open, setOpen] = useState(item.unit_price == null);
+  const [v, setV] = useState(item.unit_price != null ? String(item.unit_price) : '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (!open) return <button className="link-btn small" type="button" onClick={() => setOpen(true)}>Change price</button>;
+  const save = async (e) => {
+    e.preventDefault();
+    if (!(Number(v) > 0)) { setErr('Enter the agreed price.'); return; }
+    setBusy(true); setErr('');
+    if (await onSave(Number(v))) setOpen(false);
+    setBusy(false);
+  };
+  return (
+    <form className="price-form" onSubmit={save} noValidate>
+      <label className="small" htmlFor={id}>Agreed price, each ({config.currency})</label>
+      <span className="price-row">
+        <input className="input num" id={id} type="number" inputMode="decimal" min="0" value={v} onChange={(e) => setV(e.target.value)} />
+        <button className="btn btn-sm btn-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save price'}</button>
+      </span>
+      {err ? <span className="err">{err}</span> : null}
+    </form>
   );
 }
 
@@ -489,13 +532,20 @@ function ProductsList({ products, collections }) {
 }
 
 const blankSize = () => ({ label: '', total: '', panels: '', price: '' });
+// Common sizes in cm, one click to add (the owner only types the price). Edit freely.
+const cm = (w, h) => w + ' × ' + h + ' cm';
+const SIZE_PRESETS = {
+  single: [[30, 40], [40, 50], [40, 60], [50, 70], [60, 90], [70, 100]].map(([w, h]) => ({ label: cm(w, h), total: cm(w, h), panels: '' })),
+  three: [[30, 40], [40, 60], [50, 70], [60, 90]].map(([w, h]) => ({ label: cm(w * 3, h), total: cm(w * 3, h), panels: '3 × (' + cm(w, h) + ')' })),
+  five: [[100, 50], [150, 75], [200, 100]].map(([w, h]) => ({ label: cm(w, h), total: cm(w, h), panels: '' })),
+};
 
 function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
   const isNew = !product;
   const pickable = collections.filter((c) => !c.auto_multi);
   const [f, setF] = useState(() => product
     ? { ...product, sizes: (product.sizes || []).map((s) => ({ ...blankSize(), ...s, price: String(s.price ?? '') })), images: product.images || [] }
-    : { id: '', name: '', collection_id: (pickable[0] || {}).id || '', layout: 'single', description: '', images: [], sizes: [blankSize()], featured: false, visible: true,
+    : { id: '', name: '', collection_id: (pickable[0] || {}).id || '', layout: 'single', description: '', images: [], sizes: [blankSize()], featured: false, visible: true, allow_custom: false,
         sort: products.reduce((m, p) => Math.max(m, Number(p.sort) || 0), 0) + 1 });
   const [idTouched, setIdTouched] = useState(false);
   const [tried, setTried] = useState(false); // after the first save attempt, errors update as the owner types
@@ -530,6 +580,13 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
     setUploading('');
     if (added.length) { setF((v) => ({ ...v, images: v.images.concat(added) })); setDirty(true); }
   };
+  const presets = SIZE_PRESETS[config.features.multiPanel ? f.layout : 'single'] || [];
+  const addPreset = (s) => {
+    const blank = f.sizes.length === 1 && !f.sizes[0].label.trim() && !String(f.sizes[0].price).trim();
+    const i = blank ? 0 : f.sizes.length;
+    set({ sizes: (blank ? [] : f.sizes).concat({ ...s, price: '' }) });
+    setTimeout(() => { const el = document.getElementById('sz-p' + i); if (el) el.focus(); }, 0);
+  };
   const movePhoto = (i) => set({ images: [f.images[i]].concat(f.images.filter((_, j) => j !== i)) });
   const removePhoto = (i) => set({ images: f.images.filter((_, j) => j !== i) });
 
@@ -557,7 +614,7 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
     setBusy(true);
     const fields = {
       id: f.id, name: f.name.trim(), collection_id: f.collection_id || null, layout: config.features.multiPanel ? f.layout : 'single',
-      description: f.description.trim(), images: f.images, featured: !!f.featured, visible: !!f.visible, sort: Number(f.sort) || 0,
+      description: f.description.trim(), images: f.images, featured: !!f.featured, visible: !!f.visible, allow_custom: !!f.allow_custom, sort: Number(f.sort) || 0,
       sizes: f.sizes.map((s) => ({ label: s.label.trim(), total: s.total.trim(), panels: s.panels.trim(), price: Number(s.price) })),
     };
     try { const saved = await api.saveProduct(fields, isNew, product ? product.images || [] : []); setDirty(false); onSaved(saved); }
@@ -575,8 +632,8 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
     <form noValidate onSubmit={save} style={{ display: 'grid', gap: 20 }}>
       <a className="back" href="#/products" onClick={leave} style={{ textDecoration: 'none' }}><Chevron />All products</a>
       <div className="page-head">
-        <div style={{ display: 'grid', gap: 4 }}><h1>{isNew ? 'Add product' : product.name}</h1>{isNew ? null : <p className="muted">Shop link: <span className="mono">#/p/{product.id}</span></p>}</div>
-        {!isNew && product.visible ? <a className="btn btn-sm" href={'../#/p/' + encodeURIComponent(product.id)} target="_blank" rel="noopener">View in shop</a> : null}
+        <div style={{ display: 'grid', gap: 4 }}><h1>{isNew ? 'Add product' : product.name}</h1>{isNew ? null : <p className="muted">Shop link: <span className="mono">/p/{product.id}</span></p>}</div>
+        {!isNew && product.visible ? <a className="btn btn-sm" href={'/p/' + encodeURIComponent(product.id)} target="_blank" rel="noopener">View in shop</a> : null}
       </div>
       {Object.keys(errors).length ? <p className="note err" role="alert">Please check the highlighted fields.</p> : failed ? <p className="note err" role="alert">{failed}</p> : null}
 
@@ -592,7 +649,7 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
             <div className="field">
               <label htmlFor="pe-id">Link name</label>
               <input className="input mono" id="pe-id" value={f.id} onChange={(e) => { setIdTouched(true); set({ id: e.target.value.toLowerCase().replace(/\s+/g, '-') }); }} aria-invalid={errors.id ? 'true' : 'false'} />
-              <p className="hint">The product’s web address: <span className="mono">#/p/{f.id || 'your-product'}</span>. It can’t be changed later.</p>
+              <p className="hint">The product’s web address: <span className="mono">/p/{f.id || 'your-product'}</span>. It can’t be changed later.</p>
               {errors.id ? <p className="err">{errors.id}</p> : null}
             </div>
           ) : null}
@@ -653,6 +710,15 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
 
           <section className="card card-pad form-grid" aria-labelledby="sz-h">
             <h2 id="sz-h" className="sec-h">Sizes &amp; prices</h2>
+            {presets.length ? (
+              <div className="presets" role="group" aria-label="Add a standard size">
+                <span className="small muted">Add a standard size:</span>
+                {presets.map((s) => {
+                  const taken = f.sizes.some((x) => x.total.trim() === s.total);
+                  return <button key={s.label} className="preset" type="button" disabled={taken} onClick={() => addPreset(s)}>{taken ? '✓ ' : '+ '}{s.label}</button>;
+                })}
+              </div>
+            ) : null}
             {errors.sizes ? <p className="err">{errors.sizes}</p> : null}
             <ul className="sizes">
               {f.sizes.map((s, i) => (
@@ -668,7 +734,11 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
                 </li>
               ))}
             </ul>
-            <button className="btn btn-sm" type="button" onClick={() => set({ sizes: f.sizes.concat(blankSize()) })} style={{ justifySelf: 'start' }}>Add a size</button>
+            <button className="btn btn-sm" type="button" onClick={() => set({ sizes: f.sizes.concat(blankSize()) })} style={{ justifySelf: 'start' }}>Add another size</button>
+            <label className="check" style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+              <input type="checkbox" checked={!!f.allow_custom} onChange={(e) => set({ allow_custom: e.target.checked })} />
+              <span>Customers can ask for a custom size<span className="hint">They type the width × height they want. The order arrives marked “Needs price”: call them, then enter the price on the order.</span></span>
+            </label>
           </section>
         </div>
       </div>

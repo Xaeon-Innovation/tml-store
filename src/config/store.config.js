@@ -11,7 +11,27 @@ const storeConfig = {
     sub: 'Store',              // small spaced-out part of the logo
     fullName: 'TML Store',     // used in page titles, emails, footer
     footerLine: 'Statement wall art, framed artwork and multi-panel collections.',
-    metaDescription: 'Statement wall art, framed artwork and multi-panel collections. Order online, pay cash on delivery.',
+    alternateNames: ['The Mother Lord', 'TML', 'تي إم إل'], // other names people search for
+  },
+
+  // ---- Search engines & AI search ------------------------------------
+  // Used for page titles, Google/Bing results, link previews, sitemap.xml and llms.txt.
+  seo: {
+    siteUrl: '',               // the main address once the domain is live, e.g. 'https://tmlstore.com' (no trailing slash).
+                               // Blank = whatever address the site is opened on.
+    title: 'TML Store — The Mother Lord | براويز وتابلوهات حائط في مصر',
+    description: 'TML Store (The Mother Lord): framed wall art, براويز and 3- and 5-panel تابلوهات for every room. Delivery to every governorate in Egypt, cash on delivery.',
+    // shown on the site in Arabic (footer) and used in search snippets
+    arabicLine: 'تي إم إل ستور (The Mother Lord): براويز وتابلوهات ولوحات حائط مودرن — برواز قطعة واحدة، تابلوهات ٣ و٥ قطع، وتصميم ومقاس حسب الطلب. توصيل لكل محافظات مصر والدفع عند الاستلام.',
+    arabicShort: 'براويز وتابلوهات حائط — توصيل لكل محافظات مصر والدفع عند الاستلام.',
+    keywords: [
+      'براويز', 'برواز', 'تابلوهات', 'تابلوه', 'تابلوهات حائط', 'لوحات حائط', 'براويز حائط', 'تابلوهات مودرن', 'تابلوه ٣ قطع', 'تابلوه ٥ قطع',
+      'براويز صور', 'ديكور حائط', 'براويز اونلاين مصر', 'تابلوهات القاهرة', 'wall art Egypt', 'framed wall art', 'multi-panel wall art',
+      'canvas frames Egypt', 'TML Store', 'The Mother Lord',
+    ],
+    ogImage: '',               // picture for link previews (WhatsApp, Facebook); blank = a featured product's photo
+    googleVerification: '',    // Google Search Console → HTML tag → the content="…" value (or verify by DNS instead)
+    bingVerification: '',      // Bing Webmaster Tools → meta tag → the content="…" value
   },
 
   // ---- Look ----------------------------------------------------------

@@ -44,7 +44,7 @@ export function Art({ product, alt, className = '' }) {
 export function ProductCard({ p, wide }) {
   return (
     <li className={wide && p.layout === 'five' ? 'pcard-wide' : ''}>
-      <a className="pcard" href={'#/p/' + encodeURIComponent(p.id)}>
+      <a className="pcard" href={'/p/' + encodeURIComponent(p.id)}>
         <span className="pmedia"><Art product={p} alt={p.alt} /></span>
         <span className="pmeta"><span className="pname">{p.name}</span><span className="pprice">{p.fromPrice}</span><span className="ptype">{p.typeLine}</span></span>
       </a>

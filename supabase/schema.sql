@@ -14,7 +14,7 @@ create table if not exists public.collections (
 );
 
 create table if not exists public.products (
-  id            text primary key,                -- used in the URL: /#/p/<id>  (lowercase-with-dashes)
+  id            text primary key,                -- used in the URL: /p/<id>  (lowercase-with-dashes)
   name          text not null,
   collection_id text references public.collections(id) on update cascade on delete set null,
   layout        text not null default 'single' check (layout in ('single','three','five')),
@@ -28,6 +28,9 @@ create table if not exists public.products (
   sort          int not null default 0,
   created_at    timestamptz not null default now()
 );
+-- added later; "add column if not exists" upgrades databases created with an older copy of this file
+alter table public.products add column if not exists allow_custom boolean not null default false;  -- customers may ask for their own width × height
+alter table public.products add column if not exists updated_at timestamptz not null default now(); -- sitemap.xml lastmod
 
 create table if not exists public.orders (
   id            uuid primary key default gen_random_uuid(),
@@ -85,13 +88,24 @@ begin
   elsif new.status <> 'Completed' then
     new.completed_at := null;
   end if;
-  -- only the status may change from the dashboard; keep everything else as submitted
-  new.ref := old.ref; new.items := old.items; new.subtotal := old.subtotal; new.created_at := old.created_at;
+  -- only the status may change from the dashboard; keep everything else as submitted.
+  -- Exception: price_custom_line() below may set the price of a custom-size line.
+  new.ref := old.ref; new.created_at := old.created_at;
+  if coalesce(current_setting('app.price_edit', true), '') <> 'on' then
+    new.items := old.items; new.subtotal := old.subtotal;
+  end if;
   return new;
 end $$;
 drop trigger if exists orders_completed_at on public.orders;
 create trigger orders_completed_at before update on public.orders
   for each row execute function public.orders_set_completed_at();
+
+create or replace function public.products_touch()
+returns trigger language plpgsql as $$
+begin new.updated_at := now(); return new; end $$;
+drop trigger if exists products_touch on public.products;
+create trigger products_touch before update on public.products
+  for each row execute function public.products_touch();
 
 create or replace function public._clean_prefix(p text, fallback text)
 returns text language sql immutable as $$
@@ -109,8 +123,8 @@ declare
   c_region text := btrim(coalesce(p_customer->>'region', ''));
   c_address text := btrim(coalesce(p_customer->>'address', ''));
   c_notes text := btrim(coalesce(p_customer->>'notes', ''));
-  it jsonb; prod record; sz jsonb; q int; idx int; price numeric;
-  lines jsonb := '[]'::jsonb; total numeric := 0; new_ref text; tries int := 0;
+  it jsonb; prod record; sz jsonb; q int; idx int; price numeric; w text; h text;
+  lines jsonb := '[]'::jsonb; total numeric := 0; new_ref text; tries int := 0; pending boolean := false;
 begin
   if length(c_name) < 1 or length(c_name) > 120 then raise exception 'invalid_name'; end if;
   if regexp_replace(c_phone, '[\s\-().]', '', 'g') !~ '^\+?\d{8,15}$' then raise exception 'invalid_phone'; end if;
@@ -130,6 +144,18 @@ begin
     idx := coalesce((it->>'size_index')::int, 0);
     select * into prod from public.products where id = it->>'product_id' and visible;
     if not found then raise exception 'invalid_product'; end if;
+    -- custom size: {"custom": {"width": 120, "height": 60}} in cm. No price yet; the owner
+    -- agrees it by phone and enters it with price_custom_line().
+    if it ? 'custom' then
+      if not prod.allow_custom then raise exception 'invalid_size'; end if;
+      w := it->'custom'->>'width'; h := it->'custom'->>'height';
+      if coalesce(w, '') !~ '^\d{1,3}(\.\d)?$' or coalesce(h, '') !~ '^\d{1,3}(\.\d)?$' then raise exception 'invalid_size'; end if;
+      if w::numeric not between 10 and 600 or h::numeric not between 10 and 600 then raise exception 'invalid_size'; end if;
+      lines := lines || jsonb_build_object('product_id', prod.id, 'name', prod.name, 'size_label', 'Custom size',
+        'size_total', trim_scale(w::numeric)::text || ' × ' || trim_scale(h::numeric)::text || ' cm', 'unit_price', null, 'qty', q, 'line_total', null, 'custom', true);
+      pending := true;
+      continue;
+    end if;
     sz := prod.sizes -> idx;
     if sz is null then raise exception 'invalid_size'; end if;
     price := (sz->>'price')::numeric;
@@ -146,7 +172,29 @@ begin
 
   insert into public.orders (ref, customer_name, phone, email, region, address, notes, items, subtotal)
   values (new_ref, c_name, c_phone, c_email, c_region, c_address, c_notes, lines, total);
-  return jsonb_build_object('ref', new_ref, 'subtotal', total);
+  return jsonb_build_object('ref', new_ref, 'subtotal', total, 'pending_price', pending);
+end $$;
+
+-- ---------------------------------------------------------------- price a custom size (dashboard)
+-- Sets the agreed unit price of custom-size line `p_line` (0-based) and recalculates the subtotal.
+create or replace function public.price_custom_line(p_order uuid, p_line int, p_unit_price numeric)
+returns public.orders language plpgsql security definer set search_path = public as $$
+declare o public.orders; line jsonb; new_items jsonb;
+begin
+  if not public.is_admin() then raise exception 'not_allowed'; end if;
+  if p_unit_price is null or p_unit_price <= 0 or p_unit_price > 10000000 then raise exception 'invalid_price'; end if;
+  select * into o from public.orders where id = p_order for update;
+  if not found then raise exception 'not_found'; end if;
+  line := o.items -> p_line;
+  if line is null or not coalesce((line->>'custom')::boolean, false) then raise exception 'invalid_line'; end if;
+  new_items := jsonb_set(o.items, array[p_line::text],
+    line || jsonb_build_object('unit_price', round(p_unit_price, 2), 'line_total', round(p_unit_price, 2) * (line->>'qty')::int));
+  perform set_config('app.price_edit', 'on', true);
+  update public.orders set items = new_items,
+    subtotal = (select coalesce(sum((x->>'line_total')::numeric), 0) from jsonb_array_elements(new_items) x)
+  where id = p_order returning * into o;
+  perform set_config('app.price_edit', 'off', true);
+  return o;
 end $$;
 
 -- ---------------------------------------------------------------- custom request (called by the shop)
@@ -192,6 +240,8 @@ end $$;
 grant execute on function public.place_order(jsonb, jsonb, text) to anon, authenticated;
 grant execute on function public.submit_custom_request(jsonb, text) to anon, authenticated;
 grant execute on function public.is_admin() to anon, authenticated;
+revoke execute on function public.price_custom_line(uuid, int, numeric) from public, anon;
+grant execute on function public.price_custom_line(uuid, int, numeric) to authenticated;
 
 -- ---------------------------------------------------------------- security (row level security)
 alter table public.collections     enable row level security;

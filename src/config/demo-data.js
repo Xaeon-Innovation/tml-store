@@ -6,6 +6,7 @@
 //   images  array of image URLs; the first one is the main picture.
 //           Leave empty to show the built-in colour placeholder (`art`).
 //   sizes   [{ label, total, panels, price }]
+//   allow_custom  true = customers can also ask for their own width × height (priced by phone)
 
 export const demoCollections = [
   { id: 'anime', name: 'Anime', intro: 'Dramatic, story-driven pieces inspired by anime worlds — single framed works and multi-panel compositions.', auto_multi: false, sort: 1 },
@@ -21,9 +22,9 @@ const THREE_M = { label: 'Medium', total: '120 × 60 cm', panels: '3 × (38 × 6
 const THREE_L = { label: 'Large', total: '150 × 75 cm', panels: '3 × (48 × 75 cm)', price: 3400 };
 
 export const demoProducts = [
-  { id: 'neon-shrine', name: 'Neon Shrine', collection_id: 'anime', layout: 'five', art: 'neon', images: [], featured: true, visible: true, sort: 1, created_at: '2026-10-01',
+  { id: 'neon-shrine', name: 'Neon Shrine', collection_id: 'anime', layout: 'five', art: 'neon', images: [], featured: true, visible: true, allow_custom: true, sort: 1, created_at: '2026-10-01',
     description: 'A night skyline lit in magenta, split across five stepped panels so the glow travels the full width of the wall.', sizes: [FIVE_M, FIVE_L] },
-  { id: 'last-light', name: 'Last Light', collection_id: 'anime', layout: 'single', art: 'ronin', images: [], featured: true, visible: true, sort: 2, created_at: '2026-09-20',
+  { id: 'last-light', name: 'Last Light', collection_id: 'anime', layout: 'single', art: 'ronin', images: [], featured: true, visible: true, allow_custom: true, sort: 2, created_at: '2026-09-20',
     description: 'A lone silhouette against a burning sky. A single framed piece built around one strong moment.', sizes: [ONE_S, ONE_L] },
   { id: 'signal-lost', name: 'Signal Lost', collection_id: 'gaming', layout: 'three', art: 'signal', images: [], featured: true, visible: true, sort: 3, created_at: '2026-09-28',
     description: 'A cold teal grid fading into a single point of light, across three equal panels.', sizes: [THREE_M, THREE_L] },

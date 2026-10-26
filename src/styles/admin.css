@@ -19,26 +19,26 @@ body{margin:0;background:#F5F4F1}
 .logo-mark{font-weight:800;font-size:19px;letter-spacing:.08em;line-height:1}
 .logo-sub{font-family:'Geist Mono',monospace;font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
 
-.btn{min-height:40px;padding:0 16px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:6px;font-weight:500;font-size:14px;border:1px solid var(--line-2)!important;background:var(--surface)!important;white-space:nowrap;text-decoration:none;color:var(--text)!important}
+.btn{min-height:40px;padding:0 16px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:9px;font-weight:500;font-size:14px;border:1px solid var(--line-2)!important;background:var(--surface)!important;white-space:nowrap;text-decoration:none;color:var(--text)!important}
 .btn:hover{border-color:#A9A59D!important}
 .btn-primary{background:var(--text)!important;color:#fff!important;border-color:var(--text)!important}
 .btn-primary:hover{background:#000!important}
 .btn-danger{color:var(--err)!important;border-color:#E9C3BC!important}
 .btn-sm{min-height:34px;padding:0 12px;font-size:13px}
-.input,.select{width:100%;min-height:42px;border:1px solid var(--line-2);border-radius:6px;background:#fff;padding:9px 12px;font:inherit;font-size:15px;color:var(--text)}
+.input,.select{width:100%;min-height:42px;border:1px solid var(--line-2);border-radius:9px;background:#fff;padding:9px 12px;font:inherit;font-size:15px;color:var(--text)}
 .input:focus,.select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,70,229,.18)}
 .select{appearance:none;-webkit-appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%235C5A55' stroke-width='1.5'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 12px center;padding-right:34px}
 .field{display:grid;gap:6px}
 .field label{font-size:13.5px;font-weight:500}
 .err{color:var(--err);font-size:13.5px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
 .card-pad{padding:20px}
 .card-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
 .card-head h2{font-size:15px;font-weight:600}
-.note{font-size:13px;color:var(--muted);background:#F1F0EC;border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.note{font-size:13px;color:var(--muted);background:#F1F0EC;border:1px solid var(--line);border-radius:9px;padding:10px 12px}
 
 /* login */
-.login{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
+.login{min-height:100vh;display:grid;place-items:center;align-content:center;gap:20px;padding:24px 16px}
 .login-card{width:100%;max-width:400px;display:grid;gap:20px;padding:32px 28px}
 .login-card h1{font-size:22px;font-weight:600}
 
@@ -193,3 +193,16 @@ textarea.input{resize:vertical;line-height:1.5}
   .row-side .when{display:none}
   .demo-flag{display:none}
 }
+
+/* standard-size quick picks and custom-size pricing */
+.presets{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.preset{min-height:32px;padding:0 11px;border-radius:16px;border:1px dashed var(--line-2)!important;background:#fff!important;font-size:12.5px;white-space:nowrap}
+.preset:hover:not(:disabled){border-style:solid!important;border-color:var(--text)!important}
+.preset:disabled{opacity:.55}
+.price-form{display:grid;gap:6px;margin-top:8px;max-width:320px}
+.price-row{display:flex;gap:8px}
+.price-row .input{min-height:36px;padding:6px 10px}
+.link-btn{color:#4338CA!important;text-decoration:underline;text-underline-offset:3px;justify-self:start;margin-top:4px}
+.made-by{display:inline-flex;align-items:center;gap:10px;padding:6px 12px;border-radius:20px;background:#18181B;color:#D4D4D8!important;font-size:12px;text-decoration:none;opacity:.85}
+.made-by:hover{opacity:1}
+.made-by img{height:20px;width:auto;display:block}
