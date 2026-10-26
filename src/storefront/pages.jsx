@@ -9,14 +9,20 @@ const pad = (n) => String(n).padStart(2, '0');
 // =====================================================================
 // HOME
 // =====================================================================
-export function Home({ products, collections, craft }) {
-  const H = config.home;
+// heroContent: the hero as saved in the dashboard (overrides the same keys of config.home)
+export function Home({ products, collections, craft, heroContent }) {
+  const H = { ...config.home, ...(heroContent || {}) };
   const byId = (id) => products.find((p) => p.id === id);
   const hero = byId(H.heroProductId) || products.find((p) => p.featured) || products[0];
   const cols = visibleCollections(collections);
-  const cards = (H.collectionCards || [])
-    .map(([cid, pid]) => ({ c: cols.find((c) => c.id === cid), p: byId(pid) }))
-    .filter((x) => x.c && x.p);
+  // one card per collection with pieces; picture: the one pinned in config.home.collectionCards,
+  // else a featured piece with a photo, else any piece with a photo, else the first
+  const pinned = Object.fromEntries((H.collectionCards || []).map(([cid, pid]) => [cid, pid]));
+  const hasPhoto = (x) => x.images && x.images.length > 0;
+  const cards = cols.map((c) => {
+    const inC = products.filter((x) => matchCollection(x, c));
+    return { c, p: byId(pinned[c.id]) || inC.find((x) => x.featured && hasPhoto(x)) || inC.find(hasPhoto) || inC.find((x) => x.featured) || inC[0] };
+  }).filter((x) => x.p);
   const featured = products.filter((p) => p.featured).slice(0, 6);
   const sp = H.spaces || null;
   const spaces = sp ? [
@@ -30,7 +36,9 @@ export function Home({ products, collections, craft }) {
   return (
     <>
       <section className="hero" aria-labelledby="hero-h">
-        {hero ? (
+        {H.heroImage ? (
+          <div className="scene hero-scene hero-photo"><img src={H.heroImage} alt={H.heroImageAlt || ''} fetchPriority="high" /></div>
+        ) : hero ? (
           <div className="scene hero-scene">
             <Art product={hero} alt={hero.alt} />
             <div className="scene-floor" aria-hidden="true" /><div className="bench" aria-hidden="true" />
@@ -48,7 +56,7 @@ export function Home({ products, collections, craft }) {
               <a className="placard" href={'/p/' + encodeURIComponent(hero.id)}>
                 <span className="label">On the wall</span>
                 <span className="placard-name">{hero.name}</span>
-                <span className="placard-meta">{hero.typeLine} · {hero.fromPrice}</span>
+                <span className="placard-meta">{hero.typeLine} · {hero.soldOut ? 'Sold out' : hero.fromPrice}</span>
                 <span className="placard-link">View this piece <Icon.arrow s={14} /></span>
               </a>
             ) : <span />}
@@ -219,7 +227,7 @@ export function Catalogue({ products, collections, collId }) {
       if (sort === 'price-asc') return a.minPrice - b.minPrice;
       if (sort === 'price-desc') return b.minPrice - a.minPrice;
       if (sort === 'newest') return String(b.created_at).localeCompare(String(a.created_at));
-      return (Number(b.featured) - Number(a.featured)) || (order.indexOf(a.id) - order.indexOf(b.id));
+      return (Number(a.soldOut) - Number(b.soldOut)) || (Number(b.featured) - Number(a.featured)) || (order.indexOf(a.id) - order.indexOf(b.id));
     });
   }, [products, cur, arr, sort]);
 
@@ -347,6 +355,7 @@ export function Product({ product: p, products, onAdd, layerOpen }) {
   const related = products.filter((x) => x.id !== p.id && x.collection_id === p.collection_id)
     .concat(products.filter((x) => x.id !== p.id && x.collection_id !== p.collection_id)).slice(0, 3);
   const add = () => {
+    if (p.soldOut) return;
     if (!isCustom) { onAdd(p, sizeIdx, qty); return; }
     const err = {};
     if (!csValid(cs.w)) err.w = 'Enter a width between ' + CUSTOM_MIN + ' and ' + CUSTOM_MAX + ' cm.';
@@ -391,8 +400,8 @@ export function Product({ product: p, products, onAdd, layerOpen }) {
         <div className="pdp-info">
           {p.typeLine ? <p className="label">{p.typeLine}</p> : null}
           <h1 className="display pdp-title">{p.name}</h1>
-          <p className="pdp-price">{priceText(1)}</p>
-          <p className="small muted pdp-price-note">{isCustom ? 'We call you to confirm the price of your size before anything is made. ' : 'Price for the selected size. '}{config.deliveryNote}</p>
+          <p className="pdp-price">{priceText(1)}{p.soldOut ? <span className="sold-badge">Sold out</span> : null}</p>
+          <p className="small muted pdp-price-note">{p.soldOut ? 'This piece is sold out right now. ' : ''}{isCustom ? 'We call you to confirm the price of your size before anything is made. ' : 'Price for the selected size. '}{config.deliveryNote}</p>
 
           {p.sizes.length > 1 || p.allow_custom ? (
             <fieldset className="sizes">
@@ -432,7 +441,7 @@ export function Product({ product: p, products, onAdd, layerOpen }) {
             {size.panels && multi ? <div className="dims-row"><span className="label">{p.lay.panelLabel}</span><span>{size.panels}</span></div> : null}
           </div>
 
-          <div className="qty-row">
+          <div className="qty-row" hidden={p.soldOut}>
             <span className="label" id="qty-l">Quantity</span>
             <div className="qty" role="group" aria-labelledby="qty-l">
               <button type="button" onClick={() => setQty(Math.max(1, qty - 1))} disabled={qty <= 1} aria-label="Decrease quantity"><Icon.minus /></button>
@@ -441,7 +450,7 @@ export function Product({ product: p, products, onAdd, layerOpen }) {
             </div>
           </div>
 
-          <button className="btn btn-primary btn-block" type="button" onClick={add}>Add to bag · {priceText(qty)}</button>
+          <button className="btn btn-primary btn-block" type="button" onClick={add} disabled={p.soldOut}>{p.soldOut ? 'Sold out' : 'Add to bag · ' + priceText(qty)}</button>
           {config.features.customOrders ? (
             <button className="link-arrow" type="button" onClick={customVersion} style={{ justifySelf: 'start' }}>Request a custom version <Icon.arrow s={14} /></button>
           ) : null}
@@ -472,7 +481,7 @@ export function Product({ product: p, products, onAdd, layerOpen }) {
 
       <div className={'buybar' + (buyOn ? ' on' : '')} aria-hidden={buyOn ? undefined : 'true'}>
         <div className="buybar-l"><span className="label">{size.label ? size.label + ' · ' : ''}Qty {qty}</span><span className="buybar-price">{priceText(qty)}</span></div>
-        <button className="btn btn-primary" type="button" onClick={add} tabIndex={buyOn ? undefined : -1}>Add to bag</button>
+        <button className="btn btn-primary" type="button" onClick={add} disabled={p.soldOut} tabIndex={buyOn ? undefined : -1}>{p.soldOut ? 'Sold out' : 'Add to bag'}</button>
       </div>
     </section>
   );

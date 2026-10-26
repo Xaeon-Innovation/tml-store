@@ -502,3 +502,13 @@ a.btn{text-decoration:none}
 .made-by{display:inline-flex;align-items:center;gap:10px;min-height:44px;opacity:.75;transition:opacity .2s}
 .made-by:hover,.made-by:focus-visible{opacity:1}
 .made-by img{height:24px;width:auto;display:block}
+
+/* sold out */
+.pmedia{position:relative}
+.sold-tag{position:absolute;top:12px;left:12px;background:rgba(11,11,13,.85);color:var(--text);border:1px solid var(--line-strong);border-radius:var(--r);padding:5px 9px}
+.sold-badge{display:inline-block;margin-left:12px;vertical-align:middle;font:500 11px/1 'Geist Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--err);border:1px solid currentColor;border-radius:var(--r);padding:6px 9px}
+.bag-line.is-sold .mini,.bag-line.is-sold .bag-top{opacity:.55}
+
+/* hero with an uploaded photo instead of a product on the wall */
+.hero-photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.hero-photo::after{content:"";position:absolute;left:0;right:0;bottom:0;height:28%;background:linear-gradient(180deg,rgba(11,11,13,0),var(--bg));pointer-events:none}

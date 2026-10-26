@@ -4,7 +4,7 @@ import * as api from '../lib/api.js';
 import { ORDER_FLOW, ORDER_STATUSES, REQUEST_STATUSES, LAYOUTS, dateTime, dayKey, longToday, money, monthKey, monthLabel, plural, shiftDay, shiftMonth, shortDate, todayKey, customerWhatsapp } from '../lib/format.js';
 import { navigate, useRoute } from '../lib/router.js';
 
-const PILL = { New: 'st-new', Confirmed: 'st-confirmed', Shipped: 'st-shipped', Completed: 'st-completed', Cancelled: 'st-cancelled', Contacted: 'st-contacted', Quoted: 'st-quoted', Closed: 'st-closed', Featured: 'st-new', Hidden: 'st-closed' };
+const PILL = { New: 'st-new', Confirmed: 'st-confirmed', Shipped: 'st-shipped', Completed: 'st-completed', Cancelled: 'st-cancelled', Contacted: 'st-contacted', Quoted: 'st-quoted', Closed: 'st-closed', Featured: 'st-new', Hidden: 'st-closed', 'Sold out': 'st-cancelled' };
 const Pill = ({ s }) => <span className={'pill ' + (PILL[s] || 'st-closed')}>{s}</span>;
 const Chevron = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 8H2M7 3L2 8l5 5" /></svg>;
 const MONTHS_SHOWN = 6;
@@ -87,15 +87,19 @@ function Dashboard({ onOut }) {
     catch (e) { flash('Couldn’t update the request. Try again.', true); }
   };
 
-  const sec = ['orders', 'requests', 'products', 'craft'].includes(route.name) ? route.name : 'overview';
+  const sec = ['orders', 'requests', 'products', 'collections', 'homepage', 'craft'].includes(route.name) ? route.name : 'overview';
   const newOrders = orders ? orders.filter((o) => o.status === 'New').length : 0;
   const newReqs = requests ? requests.filter((r) => r.status === 'New').length : 0;
   const tabs = [{ id: 'overview', label: 'Overview', path: '' }, { id: 'orders', label: 'Orders', path: 'orders', badge: newOrders }]
     .concat(config.features.customOrders ? [{ id: 'requests', label: 'Custom requests', path: 'requests', badge: newReqs }] : [])
-    .concat([{ id: 'products', label: 'Products', path: 'products' }, { id: 'craft', label: 'Our craft', path: 'craft' }]);
+    .concat([{ id: 'products', label: 'Products', path: 'products' }, { id: 'collections', label: 'Collections', path: 'collections' },
+      { id: 'homepage', label: 'Homepage', path: 'homepage' }, { id: 'craft', label: 'Our craft', path: 'craft' }]);
+  const ownData = ['products', 'collections', 'homepage', 'craft'].includes(sec); // sections that load their own data
 
   let body;
   if (sec === 'products') body = <Products arg={route.arg} flash={flash} />;
+  else if (sec === 'collections') body = <CollectionsEditor flash={flash} />;
+  else if (sec === 'homepage') body = <HeroEditor flash={flash} />;
   else if (sec === 'craft') body = <CraftEditor flash={flash} />;
   else if (!orders) body = loadErr ? <div className="card empty" role="alert"><p>{loadErr}</p><button className="btn btn-sm" type="button" onClick={refresh}>Try again</button></div> : <p className="loading">Loading orders…</p>;
   else if (sec === 'orders' && route.arg) body = <OrderDetail order={orders.find((o) => o.id === route.arg)} onStatus={setOrderStatus} onPrice={setCustomPrice} />;
@@ -122,7 +126,7 @@ function Dashboard({ onOut }) {
         ))}
       </nav>
       <main className="content"><div className="content-in">
-        {loadErr && orders && sec !== 'products' && sec !== 'craft' ? <p className="note" role="alert">{loadErr}</p> : null}
+        {loadErr && orders && !ownData ? <p className="note" role="alert">{loadErr}</p> : null}
         {body}
       </div></main>
       <div role="status" aria-live="polite">{toast ? <div className={'toast' + (toast.bad ? ' bad' : '')}>{toast.msg}</div> : null}</div>
@@ -348,6 +352,255 @@ function OrderDetail({ order: o, onStatus, onPrice }) {
         </section>
       </div>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- collections
+const LINK_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+function CollectionsEditor({ flash }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  const [editing, setEditing] = useState(null); // a collection id, 'new', or null
+  const load = useCallback(() => api.fetchAllProducts().then((d) => { setData(d); setErr(''); }).catch(() => setErr('Couldn’t load collections. Check your connection.')), []);
+  useEffect(() => { load(); }, [load]);
+  if (!data) return err ? <div className="card empty" role="alert"><p>{err}</p><button className="btn btn-sm" type="button" onClick={load}>Try again</button></div> : <p className="loading">Loading collections…</p>;
+
+  const count = (c) => data.products.filter((p) => (c.auto_multi ? p.layout !== 'single' : p.collection_id === c.id)).length;
+  const sorted = data.collections.slice().sort((a, b) => (a.sort - b.sort) || a.name.localeCompare(b.name));
+  const onSaved = (saved, isNew) => {
+    setData((d) => ({ ...d, collections: isNew ? d.collections.concat(saved) : d.collections.map((c) => (c.id === saved.id ? saved : c)) }));
+    setEditing(null); flash(saved.name + (isNew ? ' added. Add products to it from the Products tab.' : ' saved.'));
+  };
+  const onDeleted = (c) => {
+    setData((d) => ({ ...d, collections: d.collections.filter((x) => x.id !== c.id), products: d.products.map((p) => (p.collection_id === c.id ? { ...p, collection_id: null } : p)) }));
+    setEditing(null); flash(c.name + ' deleted.');
+  };
+  return (
+    <>
+      <div className="page-head">
+        <div><h1>Collections</h1><p className="muted">Groups of products. They appear as filters in the shop and as cards on the homepage (once they have products).</p></div>
+        {editing !== 'new' ? <button className="btn btn-primary" type="button" onClick={() => setEditing('new')}>Add collection</button> : null}
+      </div>
+      {editing === 'new' ? <section className="card card-pad"><CollectionForm collections={data.collections} onSaved={(s) => onSaved(s, true)} onCancel={() => setEditing(null)} /></section> : null}
+      <section className="card">
+        {sorted.length ? (
+          <ul className="plist">
+            {sorted.map((c) => (
+              <li key={c.id}>
+                {editing === c.id ? (
+                  <div className="card-pad"><CollectionForm collection={c} count={count(c)} collections={data.collections} onSaved={(s) => onSaved(s, false)} onDeleted={onDeleted} onCancel={() => setEditing(null)} /></div>
+                ) : (
+                  <button className="crow" type="button" onClick={() => setEditing(c.id)} aria-label={'Edit ' + c.name}>
+                    <span className="row-main"><span className="ellip" style={{ fontWeight: 500 }}>{c.name}</span><span className="muted small ellip">{c.intro || 'No description'}</span></span>
+                    <span className="small muted">{plural(count(c), 'product')}{c.auto_multi ? ' · automatic' : ''}</span>
+                    <span className="small link-btn" aria-hidden="true">Edit</span>
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : <div className="empty"><p>No collections yet.</p></div>}
+      </section>
+    </>
+  );
+}
+
+function CollectionForm({ collection, count = 0, collections, onSaved, onDeleted, onCancel }) {
+  const isNew = !collection;
+  const [f, setF] = useState(() => (collection ? { ...collection, intro: collection.intro || '' }
+    : { id: '', name: '', intro: '', auto_multi: false, sort: collections.reduce((m, c) => Math.max(m, Number(c.sort) || 0), 0) + 1 }));
+  const [idTouched, setIdTouched] = useState(false);
+  const [tried, setTried] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState('');
+  const set = (patch) => setF((v) => ({ ...v, ...patch }));
+  const validate = () => {
+    const e = {};
+    if (!f.name.trim()) e.name = 'Enter a name.';
+    if (isNew && !LINK_RE.test(f.id)) e.id = 'Use lowercase English letters, numbers and dashes, e.g. wall-clocks.';
+    else if (isNew && collections.some((c) => c.id === f.id)) e.id = 'Another collection already uses this link.';
+    return e;
+  };
+  const errors = tried ? validate() : {};
+  const save = async (ev) => {
+    ev.preventDefault(); setTried(true); setFailed('');
+    if (Object.keys(validate()).length) return;
+    setBusy(true);
+    const fields = { id: f.id, name: f.name.trim(), intro: f.intro.trim(), auto_multi: config.features.multiPanel && !!f.auto_multi, sort: Number(f.sort) || 0 };
+    try { onSaved(await api.saveCollection(fields, isNew)); } catch (x) { setFailed(x.message); setBusy(false); }
+  };
+  const remove = async () => {
+    if (!window.confirm('Delete the collection “' + collection.name + '”?' + (count && !collection.auto_multi ? '\n\nIts ' + plural(count, 'product') + ' stay in the shop, just without a collection.' : ''))) return;
+    setBusy(true);
+    try { await api.deleteCollection(collection.id); onDeleted(collection); } catch (x) { setFailed(x.message); setBusy(false); }
+  };
+  return (
+    <form className="form-grid" noValidate onSubmit={save}>
+      <h2 className="sec-h">{isNew ? 'New collection' : 'Edit ' + collection.name}</h2>
+      {failed ? <p className="note err" role="alert">{failed}</p> : null}
+      <div className="field">
+        <label htmlFor="co-name">Name</label>
+        <input className="input" id="co-name" value={f.name} aria-invalid={errors.name ? 'true' : 'false'}
+          onChange={(e) => set(isNew && !idTouched ? { name: e.target.value, id: slugify(e.target.value) } : { name: e.target.value })} />
+        {errors.name ? <p className="err">{errors.name}</p> : null}
+      </div>
+      {isNew ? (
+        <div className="field">
+          <label htmlFor="co-id">Link name</label>
+          <input className="input mono" id="co-id" value={f.id} aria-invalid={errors.id ? 'true' : 'false'} onChange={(e) => { setIdTouched(true); set({ id: e.target.value.toLowerCase().replace(/\s+/g, '-') }); }} />
+          <p className="hint">The collection’s web address: <span className="mono">/shop/{f.id || 'your-collection'}</span>. It can’t be changed later.</p>
+          {errors.id ? <p className="err">{errors.id}</p> : null}
+        </div>
+      ) : <p className="small muted">Web address: <span className="mono">/shop/{collection.id}</span></p>}
+      <div className="field">
+        <label htmlFor="co-intro">Description <span className="muted">(optional)</span></label>
+        <textarea className="input" id="co-intro" rows={2} value={f.intro} onChange={(e) => set({ intro: e.target.value })} />
+        <p className="hint">Shown at the top of the collection’s page and used by Google.</p>
+      </div>
+      <div className="field">
+        <label htmlFor="co-sort">Position</label>
+        <input className="input" id="co-sort" type="number" inputMode="numeric" value={f.sort} onChange={(e) => set({ sort: e.target.value })} style={{ maxWidth: 140 }} />
+        <p className="hint">Smaller numbers come first.</p>
+      </div>
+      {config.features.multiPanel ? (
+        <label className="check"><input type="checkbox" checked={!!f.auto_multi} onChange={(e) => set({ auto_multi: e.target.checked })} /><span>Automatic: every 3- and 5-panel piece<span className="hint">No need to add products to it one by one.</span></span></label>
+      ) : null}
+      <div className="actions">
+        <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : isNew ? 'Add collection' : 'Save'}</button>
+        <button className="btn" type="button" onClick={onCancel} disabled={busy}>Cancel</button>
+        {!isNew ? <button className="btn btn-danger" type="button" onClick={remove} disabled={busy} style={{ marginLeft: 'auto' }}>Delete collection</button> : null}
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------- homepage hero
+// Saved in site_content under 'hero', with the same keys as config.home (which it overrides).
+const HERO_KEYS = ['heroTitle', 'heroTitleItalic', 'heroLead', 'heroProductId', 'heroImage', 'heroImageAlt'];
+
+function HeroEditor({ flash }) {
+  const [f, setF] = useState(null);
+  const [mode, setMode] = useState('product'); // 'product' on the wall, or an uploaded 'image'
+  const [products, setProducts] = useState([]);
+  const [savedImage, setSavedImage] = useState('');
+  const [loadErr, setLoadErr] = useState('');
+  const [failed, setFailed] = useState('');
+  const [tried, setTried] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useLeaveWarning(dirty);
+
+  const load = useCallback(() => Promise.all([api.fetchContent('hero'), api.fetchAllProducts()]).then(([v, d]) => {
+    const base = { ...config.home, ...(v || {}) };
+    const val = Object.fromEntries(HERO_KEYS.map((k) => [k, base[k] || '']));
+    setF(val); setMode(val.heroImage ? 'image' : 'product'); setSavedImage(val.heroImage);
+    setProducts(d.products.filter((p) => p.visible)); setLoadErr('');
+  }).catch(() => setLoadErr('Couldn’t load the homepage settings. Check your connection.')), []);
+  useEffect(() => { load(); }, [load]);
+
+  if (!f) return loadErr ? <div className="card empty" role="alert"><p>{loadErr}</p><button className="btn btn-sm" type="button" onClick={load}>Try again</button></div> : <p className="loading">Loading…</p>;
+
+  const set = (patch) => { setF((v) => ({ ...v, ...patch })); setDirty(true); };
+  const fallback = products.find((p) => p.featured) || products[0];
+  const piece = products.find((p) => p.id === f.heroProductId);
+  const upload = async (file) => {
+    if (!file) return;
+    setUploading(true); setFailed('');
+    try { const url = await api.uploadProductImage(file, 'hero', 2400); setF((v) => ({ ...v, heroImage: url })); setDirty(true); }
+    catch (x) { setFailed(x.message); }
+    setUploading(false);
+  };
+  const errors = {};
+  if (tried) {
+    if (!f.heroTitle.trim()) errors.title = 'Enter the first line of the title.';
+    if (mode === 'image' && !f.heroImage) errors.image = 'Upload a photo, or choose “A product on the wall”.';
+  }
+  const save = async (e) => {
+    e.preventDefault(); setTried(true); setFailed('');
+    if (!f.heroTitle.trim() || (mode === 'image' && !f.heroImage)) { window.scrollTo(0, 0); return; }
+    const value = { heroTitle: f.heroTitle.trim(), heroTitleItalic: f.heroTitleItalic.trim(), heroLead: f.heroLead.trim(), heroProductId: f.heroProductId,
+      heroImage: mode === 'image' ? f.heroImage : '', heroImageAlt: mode === 'image' ? f.heroImageAlt.trim() : '' };
+    setBusy(true);
+    try {
+      await api.saveContent('hero', value, savedImage ? [savedImage] : [], value.heroImage ? [value.heroImage] : []);
+      setSavedImage(value.heroImage); setDirty(false); setTried(false); flash('Homepage saved. It’s live now.');
+    } catch (x) { setFailed(x.message); window.scrollTo(0, 0); }
+    setBusy(false);
+  };
+
+  return (
+    <form noValidate onSubmit={save} style={{ display: 'grid', gap: 20 }}>
+      <div className="page-head">
+        <div><h1>Homepage</h1><p className="muted">The top of the homepage: the big title and the picture behind it.</p></div>
+        <a className="btn btn-sm" href="/" target="_blank" rel="noopener">View the homepage</a>
+      </div>
+      {Object.keys(errors).length ? <p className="note err" role="alert">Please check the highlighted fields.</p> : failed ? <p className="note err" role="alert">{failed}</p> : null}
+
+      <div className="detail-grid">
+        <section className="card card-pad form-grid" aria-labelledby="hr-t">
+          <h2 id="hr-t" className="sec-h">Title</h2>
+          <div className="field">
+            <label htmlFor="hr-title">First line</label>
+            <input className="input" id="hr-title" value={f.heroTitle} onChange={(e) => set({ heroTitle: e.target.value })} aria-invalid={errors.title ? 'true' : 'false'} />
+            {errors.title ? <p className="err">{errors.title}</p> : null}
+          </div>
+          <div className="field">
+            <label htmlFor="hr-italic">Second line <span className="muted">(shown in italics, optional)</span></label>
+            <input className="input" id="hr-italic" value={f.heroTitleItalic} onChange={(e) => set({ heroTitleItalic: e.target.value })} />
+          </div>
+          <div className="field">
+            <label htmlFor="hr-lead">Sentence under the title</label>
+            <textarea className="input" id="hr-lead" rows={2} value={f.heroLead} onChange={(e) => set({ heroLead: e.target.value })} />
+          </div>
+          <div className="hero-preview" aria-hidden="true">
+            <span className="hp-h">{f.heroTitle || 'First line'}</span>
+            {f.heroTitleItalic ? <em className="hp-h">{f.heroTitleItalic}</em> : null}
+            <span className="small">{f.heroLead}</span>
+          </div>
+        </section>
+
+        <section className="card card-pad form-grid" aria-labelledby="hr-p">
+          <h2 id="hr-p" className="sec-h">Picture</h2>
+          <div className="seg" role="radiogroup" aria-label="Picture type">
+            <button type="button" role="radio" aria-checked={mode === 'product'} className={mode === 'product' ? 'is-on' : ''} onClick={() => { setMode('product'); setDirty(true); }}>A product on the wall</button>
+            <button type="button" role="radio" aria-checked={mode === 'image'} className={mode === 'image' ? 'is-on' : ''} onClick={() => { setMode('image'); setDirty(true); }}>My own photo</button>
+          </div>
+          {mode === 'image' ? (
+            <>
+              <div className="craft-photo hero-photo-adm">
+                {f.heroImage ? <img src={f.heroImage} alt="" /> : <span className="craft-ph">No photo yet</span>}
+                <span className="photo-acts">
+                  <label className={uploading ? 'is-busy' : ''}>
+                    <input className="sr" type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(e) => { upload(e.target.files[0]); e.target.value = ''; }} />
+                    {uploading ? 'Uploading…' : f.heroImage ? 'Replace photo' : 'Upload photo'}
+                  </label>
+                </span>
+              </div>
+              {errors.image ? <p className="err">{errors.image}</p> : null}
+              <p className="hint">A wide landscape photo works best (at least 1600 px wide), e.g. a real room with your products. The bottom fades into the page.</p>
+              <div className="field">
+                <label htmlFor="hr-alt">Describe the photo <span className="muted">(for Google and screen readers)</span></label>
+                <input className="input" id="hr-alt" placeholder="e.g. Framed anime prints above a grey sofa" value={f.heroImageAlt} onChange={(e) => set({ heroImageAlt: e.target.value })} />
+              </div>
+            </>
+          ) : <p className="hint">The chosen piece is shown hanging on a wall. Products with a photo look best; 3- and 5-panel photos are split across the panels.</p>}
+          <div className="field">
+            <label htmlFor="hr-prod">Featured piece</label>
+            <select className="select" id="hr-prod" value={f.heroProductId} onChange={(e) => set({ heroProductId: e.target.value })}>
+              <option value="">Automatic: first featured product{fallback ? ' (' + fallback.name + ')' : ''}</option>
+              {products.map((p) => <option key={p.id} value={p.id}>{p.name}{p.images && p.images.length ? '' : ' (no photo)'}</option>)}
+            </select>
+            <p className="hint">{mode === 'product' ? 'Shown on the wall, and in the “On the wall” card next to the buttons.' : 'Shown in the “On the wall” card next to the buttons.'}{f.heroProductId && !piece ? ' The piece chosen before is hidden or deleted, so the automatic one is used.' : ''}</p>
+          </div>
+        </section>
+      </div>
+
+      <div className="actions save-bar">
+        <button className="btn btn-primary" type="submit" disabled={busy || uploading || !dirty}>{busy ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}</button>
+      </div>
+    </form>
   );
 }
 
@@ -647,7 +900,7 @@ function ProductsList({ products, collections }) {
                   <span className="row-main"><span className="ellip" style={{ fontWeight: 500 }}>{p.name}</span><span className="muted small ellip">{[collName(p.collection_id), config.features.multiPanel ? (LAYOUTS[p.layout] || LAYOUTS.single).short : ''].filter(Boolean).join(' · ') || 'No collection'}</span></span>
                   <span className="prow-side">
                     <span className="num">{fromPrice(p)}</span>
-                    <span className="prow-pills">{!p.visible ? <Pill s="Hidden" /> : null}{p.featured ? <Pill s="Featured" /> : null}</span>
+                    <span className="prow-pills">{!p.visible ? <Pill s="Hidden" /> : null}{p.in_stock === false ? <Pill s="Sold out" /> : null}{p.featured ? <Pill s="Featured" /> : null}</span>
                   </span>
                 </a>
               </li>
@@ -675,7 +928,7 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
   const pickable = collections.filter((c) => !c.auto_multi);
   const [f, setF] = useState(() => product
     ? { ...product, sizes: (product.sizes || []).map((s) => ({ ...blankSize(), ...s, price: String(s.price ?? '') })), images: product.images || [] }
-    : { id: '', name: '', collection_id: (pickable[0] || {}).id || '', layout: 'single', description: '', images: [], sizes: [blankSize()], featured: false, visible: true, allow_custom: false,
+    : { id: '', name: '', collection_id: (pickable[0] || {}).id || '', layout: 'single', description: '', images: [], sizes: [blankSize()], featured: false, visible: true, in_stock: true, allow_custom: false,
         sort: products.reduce((m, p) => Math.max(m, Number(p.sort) || 0), 0) + 1 });
   const [idTouched, setIdTouched] = useState(false);
   const [tried, setTried] = useState(false); // after the first save attempt, errors update as the owner types
@@ -738,7 +991,7 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
     setBusy(true);
     const fields = {
       id: f.id, name: f.name.trim(), collection_id: f.collection_id || null, layout: config.features.multiPanel ? f.layout : 'single',
-      description: f.description.trim(), images: f.images, featured: !!f.featured, visible: !!f.visible, allow_custom: !!f.allow_custom, sort: Number(f.sort) || 0,
+      description: f.description.trim(), images: f.images, featured: !!f.featured, visible: !!f.visible, in_stock: f.in_stock !== false, allow_custom: !!f.allow_custom, sort: Number(f.sort) || 0,
       sizes: f.sizes.map((s) => ({ label: s.label.trim(), total: s.total.trim(), panels: s.panels.trim(), price: Number(s.price) })),
     };
     try { const saved = await api.saveProduct(fields, isNew, product ? product.images || [] : []); setDirty(false); onSaved(saved); }
@@ -803,6 +1056,7 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
             <p className="hint">Smaller numbers come first.</p>
           </div>
           <label className="check"><input type="checkbox" checked={!!f.visible} onChange={(e) => set({ visible: e.target.checked })} /><span>Show in the shop<span className="hint">Untick to hide it without deleting.</span></span></label>
+          <label className="check"><input type="checkbox" checked={f.in_stock !== false} onChange={(e) => set({ in_stock: e.target.checked })} /><span>In stock<span className="hint">Untick when it’s sold out: it stays in the shop marked “Sold out” and can’t be ordered.</span></span></label>
           <label className="check"><input type="checkbox" checked={!!f.featured} onChange={(e) => set({ featured: e.target.checked })} /><span>Feature on the homepage</span></label>
         </section>
 

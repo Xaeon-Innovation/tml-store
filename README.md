@@ -63,9 +63,15 @@ The owner manages products in the dashboard: **Products** tab → *Add product*,
 - **Custom sizes:** tick *Customers can ask for a custom size* and the product page offers a "Custom size" choice where the customer types width × height (10–600 cm). Those orders arrive marked **Needs price**: call the customer, agree the price, and enter it on the order (*Agreed price → Save price*). The order subtotal, and the revenue once it's Completed, then include it.
 - Removing a photo or deleting a product also deletes its files from storage. Past orders keep their own copy of names and prices, so deleting a product doesn't change them. To take a product down for a while, untick *Show in the shop* instead.
 
+- **In stock:** untick it when a piece sells out. It stays in the shop marked *Sold out* (moved to the end of the catalogue), can't be added to the bag, and the database refuses orders for it. Anyone who already had it in their bag sees it marked sold out and it's left out of their order.
+
+**Collections:** dashboard → **Collections** tab → *Add collection* (name, optional description, position). Then put products in it from each product's *Collection* field. Every collection with products gets a card on the homepage automatically. Deleting a collection keeps its products; they're just no longer in a collection.
+
+**Homepage hero:** dashboard → **Homepage** tab. Edit the two title lines and the sentence under them, and choose the picture: a product hanging on the wall, or your own photo (e.g. a real room). The *Featured piece* is also shown in the "On the wall" card next to the buttons.
+
 **Our craft (homepage section):** dashboard → **Our craft** tab. Edit the heading and introduction, add up to 8 details (title, description, optional small detail, photo), reorder or remove them, or untick *Show this section* to hide it and its menu link. Changes are live as soon as they're saved. Until the first save, the shop shows the copy in `store.config.js → home.craft`.
 
-Collections are still edited in **Supabase → Table Editor → collections**. Products can also be edited there; the columns are:
+Products can also be edited in **Supabase → Table Editor → products**; the columns are:
 
 | Column | Example |
 |---|---|
@@ -78,6 +84,7 @@ Collections are still edited in **Supabase → Table Editor → collections**. P
 | `featured` | shows on the homepage |
 | `visible` | untick to hide without deleting |
 | `allow_custom` | customers may ask for their own width × height |
+| `in_stock` | untick when sold out |
 
 The order of products follows `sort` (small numbers first).
 

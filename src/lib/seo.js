@@ -38,7 +38,9 @@ export function pageMeta(route, data, config, origin) {
     const faq = (config.home.faq || []).length ? { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: config.home.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) } : null;
     if (faq) m.jsonLd.push(faq);
     const featured = products.filter((p) => p.featured).slice(0, 12);
-    m.body = pre(`<h1>${esc(brand)} — ${esc(config.home.heroTitle)} ${esc(config.home.heroTitleItalic)}</h1>
+    const H = { ...config.home, ...((data && data.content && data.content.hero) || {}) };
+    if (isHttp(H.heroImage)) m.image = H.heroImage;
+    m.body = pre(`<h1>${esc(brand)} — ${esc(H.heroTitle)} ${esc(H.heroTitleItalic)}</h1><p>${esc(H.heroLead)}</p>
 <p>${esc(S.description)}</p><p lang="ar" dir="rtl">${esc(S.arabicLine)}</p>
 <nav><a href="/shop">All wall art</a> · ${config.features.customOrders ? '<a href="/custom">Custom orders</a>' : ''}</nav>
 ${collections.length ? '<h2>Collections</h2><ul>' + collections.map((c) => `<li><a href="/shop/${encodeURIComponent(c.id)}">${esc(c.name)}</a> — ${esc(c.intro)}</li>`).join('') + '</ul>' : ''}
@@ -79,14 +81,14 @@ ${collections.length ? '<ul>' + collections.map((x) => `<li><a href="/shop/${enc
       description: clip(`${p.name}: ${lay.label.toLowerCase()} wall art${from ? ', ' + from : ''}. ${p.description} ${S.arabicShort}`, 300),
       canonical: url, image: imgs[0] || m.image, type: 'product',
     });
-    const offer = { '@type': ps.length > 1 ? 'AggregateOffer' : 'Offer', priceCurrency: config.currency, availability: 'https://schema.org/InStock', url, seller: { '@type': 'Organization', name: brand } };
+    const offer = { '@type': ps.length > 1 ? 'AggregateOffer' : 'Offer', priceCurrency: config.currency, availability: 'https://schema.org/' + (p.in_stock === false ? 'OutOfStock' : 'InStock'), url, seller: { '@type': 'Organization', name: brand } };
     if (ps.length > 1) Object.assign(offer, { lowPrice: Math.min(...ps), highPrice: Math.max(...ps), offerCount: ps.length });
     else if (ps.length) offer.price = ps[0];
     m.jsonLd.push({ '@context': 'https://schema.org', '@type': 'Product', name: p.name, description: p.description || undefined, sku: p.id, url, image: imgs.length ? imgs : undefined,
       brand: { '@type': 'Brand', name: brand }, category: 'Home & Garden > Decor > Artwork', ...(ps.length ? { offers: offer } : {}) });
     m.jsonLd.push(crumbs([[brand, origin + '/'], ['Collections', origin + '/shop']].concat(coll ? [[coll.name, origin + '/shop/' + encodeURIComponent(coll.id)]] : []).concat([[p.name, url]])));
     m.body = pre(`<nav><a href="/">${esc(brand)}</a> / <a href="/shop">Collections</a>${coll ? ` / <a href="/shop/${encodeURIComponent(coll.id)}">${esc(coll.name)}</a>` : ''}</nav>
-<h1>${esc(p.name)}</h1><p>${esc(lay.label)}${coll ? ' · ' + esc(coll.name) : ''}${from ? ' · ' + esc(from) : ''}</p>
+<h1>${esc(p.name)}</h1><p>${esc(lay.label)}${coll ? ' · ' + esc(coll.name) : ''}${from ? ' · ' + esc(from) : ''}${p.in_stock === false ? ' · Sold out' : ''}</p>
 ${imgs[0] ? `<img src="${esc(imgs[0])}" alt="${esc(p.name + ', ' + lay.label.toLowerCase())}" width="600" style="max-width:100%;height:auto">` : ''}
 ${p.description ? `<p>${esc(p.description)}</p>` : ''}
 ${(p.sizes || []).length ? '<h2>Sizes</h2><ul>' + p.sizes.map((s) => `<li>${esc([s.label, s.total].filter(Boolean).join(' — '))}: ${esc(priceOf(config, s.price))}</li>`).join('') + '</ul>' : ''}

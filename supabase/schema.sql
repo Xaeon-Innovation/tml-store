@@ -31,6 +31,7 @@ create table if not exists public.products (
 -- added later; "add column if not exists" upgrades databases created with an older copy of this file
 alter table public.products add column if not exists allow_custom boolean not null default false;  -- customers may ask for their own width × height
 alter table public.products add column if not exists updated_at timestamptz not null default now(); -- sitemap.xml lastmod
+alter table public.products add column if not exists in_stock boolean not null default true;      -- false = shown as "Sold out", can't be ordered
 
 create table if not exists public.orders (
   id            uuid primary key default gen_random_uuid(),
@@ -69,6 +70,7 @@ create index if not exists custom_requests_created_idx on public.custom_requests
 
 -- Homepage sections the owner edits in the dashboard, one row per section.
 -- key 'craft' = the "Our craft" section: {show, title, intro, details:[{title, copy, spec, image}]}.
+-- key 'hero'  = the top of the homepage: {heroTitle, heroTitleItalic, heroLead, heroProductId, heroImage}.
 -- Missing rows fall back to the copy in store.config.js.
 create table if not exists public.site_content (
   key        text primary key,
@@ -153,6 +155,7 @@ begin
     idx := coalesce((it->>'size_index')::int, 0);
     select * into prod from public.products where id = it->>'product_id' and visible;
     if not found then raise exception 'invalid_product'; end if;
+    if not prod.in_stock then raise exception 'invalid_out_of_stock'; end if;
     -- custom size: {"custom": {"width": 120, "height": 60}} in cm. No price yet; the owner
     -- agrees it by phone and enters it with price_custom_line().
     if it ? 'custom' then

@@ -51,7 +51,7 @@ function text(body, type) {
   return new Response(body, { headers: { 'Content-Type': type + '; charset=utf-8', 'Cache-Control': 'public, max-age=' + CACHE_SECONDS } });
 }
 
-// { collections, products } of visible products, or null if Supabase can't be reached.
+// { collections, products, content } (visible products only), or null if Supabase can't be reached.
 async function catalog(env, ctx, url) {
   const key = new Request(url.origin + '/__catalog-v1');
   const hit = await caches.default.match(key);
@@ -61,8 +61,11 @@ async function catalog(env, ctx, url) {
     if (!site.supabaseUrl || !site.anonKey) return null;
     const get = (q) => fetch(site.supabaseUrl + '/rest/v1/' + q, { headers: { apikey: site.anonKey } })
       .then((r) => { if (!r.ok) throw new Error('Supabase ' + r.status); return r.json(); });
-    const [collections, products] = await Promise.all([get('collections?select=*&order=sort'), get('products?select=*&visible=eq.true&order=sort')]);
-    const data = { collections, products };
+    const [collections, products, content] = await Promise.all([
+      get('collections?select=*&order=sort'), get('products?select=*&visible=eq.true&order=sort'),
+      get('site_content?select=key,value').catch(() => []), // optional: dashboard-edited homepage sections
+    ]);
+    const data = { collections, products, content: Object.fromEntries(content.map((r) => [r.key, r.value])) };
     ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=' + CACHE_SECONDS } })));
     return data;
   } catch (e) {

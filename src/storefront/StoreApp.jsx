@@ -67,18 +67,21 @@ export default function StoreApp() {
   const collections = cat.collections;
   // "Our craft": the owner's version from the dashboard, else the copy in store.config.js
   const craft = (cat.content && cat.content.craft) || config.home.craft;
+  const heroContent = (cat.content && cat.content.hero) || null;
   const products = useMemo(() => cat.products.map((p) => decorate(p, collections)), [cat.products, collections]);
   const byId = (id) => products.find((p) => p.id === id);
 
   // bag lines (skips products that are no longer available)
   // custom sizes have no price yet (unit null): the owner quotes it by phone
-  const lines = bag.map((b) => {
+  // sold-out pieces stay visible in the bag (to be removed) but aren't counted or ordered
+  const shown = bag.map((b) => {
     const p = byId(b.productId); if (!p) return null;
-    const base = { key: bagKey(b), productId: p.id, qty: b.qty, product: { id: p.id, layout: p.layout, art: p.art, images: p.images }, name: p.name, lay: p.lay };
+    const base = { key: bagKey(b), productId: p.id, qty: b.qty, product: { id: p.id, layout: p.layout, art: p.art, images: p.images }, name: p.name, lay: p.lay, soldOut: p.soldOut };
     if (b.custom) return p.allow_custom ? { ...base, custom: b.custom, sizeLabel: customLabel(b.custom), unit: null, lineTotal: 0 } : null;
     const s = p.sizes[b.sizeIdx]; if (!s) return null;
     return { ...base, sizeIdx: b.sizeIdx, sizeLabel: [s.label, s.total !== s.label ? s.total : ''].filter(Boolean).join(' · '), unit: Number(s.price), lineTotal: Number(s.price) * b.qty };
   }).filter(Boolean);
+  const lines = shown.filter((l) => !l.soldOut);
   const count = lines.reduce((a, l) => a + l.qty, 0);
   const subtotal = lines.reduce((a, l) => a + l.lineTotal, 0);
   const hasCustom = lines.some((l) => l.custom);
@@ -122,7 +125,7 @@ export default function StoreApp() {
         <button className="btn btn-primary" type="button" onClick={load}>Try again</button>
       </section>
     );
-  } else if (r === 'home' || r === 'craft') page = <Home products={products} collections={collections} craft={craft} />;
+  } else if (r === 'home' || r === 'craft') page = <Home products={products} collections={collections} craft={craft} heroContent={heroContent} />;
   else if (r === 'shop') page = <Catalogue products={products} collections={collections} collId={route.arg} />;
   else if (r === 'p') page = <Product product={byId(route.arg)} products={products} onAdd={addToBag} layerOpen={layerOpen} />;
   else if (r === 'checkout') page = <Checkout lines={lines} subtotal={subtotal} hasCustom={hasCustom} onPlaced={onPlaced} openBag={(e) => openLayer(setBagOpen)} />;
@@ -195,7 +198,7 @@ export default function StoreApp() {
           <button className="icon-btn" type="button" ref={bagClose} onClick={() => closeLayer(setBagOpen)} aria-label="Close bag"><Icon.close /></button>
         </div>
         <div className="drawer-body">
-          {!lines.length ? (
+          {!shown.length ? (
             <div className="drawer-empty">
               <p className="display" style={{ fontSize: 30 }}>Your bag is empty.</p>
               <p className="muted">Explore the collections and add a piece you love.</p>
@@ -203,19 +206,21 @@ export default function StoreApp() {
             </div>
           ) : (
             <ul>
-              {lines.map((l) => (
-                <li key={l.key} className="bag-line">
+              {shown.map((l) => (
+                <li key={l.key} className={'bag-line' + (l.soldOut ? ' is-sold' : '')}>
                   <span className="mini"><Art product={l.product} /></span>
                   <div className="bag-info">
-                    <div className="bag-top"><span>{l.name}</span><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{l.custom ? 'Price by phone' : money(l.lineTotal)}</span></div>
+                    <div className="bag-top"><span>{l.name}</span><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{l.soldOut ? 'Sold out' : l.custom ? 'Price by phone' : money(l.lineTotal)}</span></div>
                     <p className="bag-opts">{l.sizeLabel}</p>
-                    <p className="bag-opts">{config.features.multiPanel ? l.lay.short + ' · ' : ''}{l.custom ? 'we call you with the price' : money(l.unit) + ' each'}</p>
+                    <p className="bag-opts">{l.soldOut ? 'Sold out since you added it — it won’t be included in your order.' : (config.features.multiPanel ? l.lay.short + ' · ' : '') + (l.custom ? 'we call you with the price' : money(l.unit) + ' each')}</p>
                     <div className="bag-ctrl">
-                      <div className="qty" role="group" aria-label={'Quantity for ' + l.name}>
-                        <button type="button" onClick={() => setQty(l.key, -1)} disabled={l.qty <= 1} aria-label="Decrease quantity"><Icon.minus s={12} /></button>
-                        <output>{l.qty}</output>
-                        <button type="button" onClick={() => setQty(l.key, 1)} disabled={l.qty >= 10} aria-label="Increase quantity"><Icon.plus s={12} /></button>
-                      </div>
+                      {l.soldOut ? <span /> : (
+                        <div className="qty" role="group" aria-label={'Quantity for ' + l.name}>
+                          <button type="button" onClick={() => setQty(l.key, -1)} disabled={l.qty <= 1} aria-label="Decrease quantity"><Icon.minus s={12} /></button>
+                          <output>{l.qty}</output>
+                          <button type="button" onClick={() => setQty(l.key, 1)} disabled={l.qty >= 10} aria-label="Increase quantity"><Icon.plus s={12} /></button>
+                        </div>
+                      )}
                       <button className="rm" type="button" onClick={() => remove(l.key)} aria-label={'Remove ' + l.name + ' from bag'}>Remove</button>
                     </div>
                   </div>

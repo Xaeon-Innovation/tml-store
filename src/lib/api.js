@@ -10,7 +10,7 @@ export { isDemo };
 // ------------------------------------------------------------------ catalogue
 // content: owner-edited homepage sections by key (see fetchContent); {} if none yet.
 export async function fetchCatalog() {
-  if (isDemo) return { collections: demoCollections, products: demo.products().filter((p) => p.visible), content: demo.content() };
+  if (isDemo) return { collections: demo.collections(), products: demo.products().filter((p) => p.visible), content: demo.content() };
   const [c, p, s] = await Promise.all([
     supabase.from('collections').select('*').order('sort'),
     supabase.from('products').select('*').eq('visible', true).order('sort'),
@@ -54,6 +54,7 @@ export async function submitCustomRequest(fields, files) {
 
 function friendly(error) {
   const m = String((error && error.message) || '');
+  if (/out_of_stock/.test(m)) return new Error('A piece in your bag has just sold out. Remove it from your bag and try again.');
   if (/invalid_|missing_/.test(m)) return new Error('Some details were not accepted. Check the form and try again.');
   if (/Failed to fetch|NetworkError/i.test(m)) return new Error('No connection. Check your internet and try again.');
   return new Error('Something went wrong sending your request. Please try again, or contact us directly.');
@@ -125,7 +126,7 @@ export async function requestImageUrls(paths) {
 // ------------------------------------------------------------------ products (dashboard)
 // Hidden products included. RLS only lets admins see hidden ones or write.
 export async function fetchAllProducts() {
-  if (isDemo) return { collections: demoCollections, products: demo.products() };
+  if (isDemo) return { collections: demo.collections(), products: demo.products() };
   const [c, p] = await Promise.all([
     supabase.from('collections').select('*').order('sort'),
     supabase.from('products').select('*').order('sort').order('created_at'),
@@ -162,6 +163,24 @@ export async function uploadProductImage(file, productId, maxPx = 3000) {
   if (error) throw new Error('The photo could not be uploaded. Check your connection and try again.');
   return supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl;
 }
+// ------------------------------------------------------------------ collections (dashboard)
+// Deleting a collection keeps its products; they just have no collection (FK: on delete set null).
+export async function saveCollection(fields, isNew) {
+  if (isDemo) return demo.saveCollection(fields, isNew);
+  const q = isNew ? supabase.from('collections').insert(fields) : supabase.from('collections').update(fields).eq('id', fields.id);
+  const { data, error } = await q.select().single();
+  if (error) {
+    if (error.code === '23505') throw new Error('Another collection already uses this link. Choose a different one.');
+    throw productError(error);
+  }
+  return data;
+}
+export async function deleteCollection(id) {
+  if (isDemo) return demo.deleteCollection(id);
+  const { error } = await supabase.from('collections').delete().eq('id', id);
+  if (error) throw productError(error);
+}
+
 // ------------------------------------------------------------------ editable homepage sections
 // One row per section in site_content (e.g. 'craft'). null = never saved, use store.config.js.
 export async function fetchContent(key) {
@@ -255,6 +274,20 @@ const demo = {
     try { localStorage.setItem('demo_products_v1', JSON.stringify(next)); }
     catch (e) { throw new Error('Demo mode stores photos in this browser, and it’s full. Remove a photo or connect Supabase.'); }
     return saved;
+  },
+  collections() { return this.load('demo_collections_v1', () => demoCollections); },
+  async saveCollection(fields, isNew) {
+    await wait(200);
+    const list = this.collections();
+    if (isNew && list.some((c) => c.id === fields.id)) throw new Error('Another collection already uses this link. Choose a different one.');
+    const saved = { ...list.find((c) => c.id === fields.id), ...fields };
+    this.save('demo_collections_v1', isNew ? list.concat(saved) : list.map((c) => (c.id === fields.id ? saved : c)));
+    return saved;
+  },
+  async deleteCollection(id) {
+    await wait(200);
+    this.save('demo_collections_v1', this.collections().filter((c) => c.id !== id));
+    this.save('demo_products_v1', this.products().map((p) => (p.collection_id === id ? { ...p, collection_id: null } : p)));
   },
   content() { try { return JSON.parse(localStorage.getItem('demo_content_v1')) || {}; } catch (e) { return {}; } },
   async saveContent(key, value) {

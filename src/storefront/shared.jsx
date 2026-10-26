@@ -20,6 +20,7 @@ export function decorate(p, collections) {
     lay,
     typeLine: [coll && coll.name, config.features.multiPanel ? lay.short : ''].filter(Boolean).join(' · '),
     minPrice: min,
+    soldOut: p.in_stock === false,
     fromPrice: (prices.length > 1 ? 'From ' : '') + money(min),
     alt: p.name + (config.features.multiPanel ? ', ' + lay.label.toLowerCase() : ''),
   };
@@ -45,8 +46,8 @@ export function ProductCard({ p, wide }) {
   return (
     <li className={wide && p.layout === 'five' ? 'pcard-wide' : ''}>
       <a className="pcard" href={'/p/' + encodeURIComponent(p.id)}>
-        <span className="pmedia"><Art product={p} alt={p.alt} /></span>
-        <span className="pmeta"><span className="pname">{p.name}</span><span className="pprice">{p.fromPrice}</span><span className="ptype">{p.typeLine}</span></span>
+        <span className="pmedia"><Art product={p} alt={p.alt} />{p.soldOut ? <span className="label sold-tag">Sold out</span> : null}</span>
+        <span className="pmeta"><span className="pname">{p.name}</span><span className="pprice">{p.soldOut ? 'Sold out' : p.fromPrice}</span><span className="ptype">{p.typeLine}</span></span>
       </a>
     </li>
   );
