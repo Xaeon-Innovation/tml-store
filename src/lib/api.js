@@ -8,15 +8,18 @@ import { demoCollections, demoProducts } from '../config/demo-data.js';
 export { isDemo };
 
 // ------------------------------------------------------------------ catalogue
+// content: owner-edited homepage sections by key (see fetchContent); {} if none yet.
 export async function fetchCatalog() {
-  if (isDemo) return { collections: demoCollections, products: demo.products().filter((p) => p.visible) };
-  const [c, p] = await Promise.all([
+  if (isDemo) return { collections: demoCollections, products: demo.products().filter((p) => p.visible), content: demo.content() };
+  const [c, p, s] = await Promise.all([
     supabase.from('collections').select('*').order('sort'),
     supabase.from('products').select('*').eq('visible', true).order('sort'),
+    supabase.from('site_content').select('key,value'),
   ]);
   if (c.error) throw c.error;
   if (p.error) throw p.error;
-  return { collections: c.data, products: p.data };
+  // a missing site_content table must not break the shop: fall back to store.config.js
+  return { collections: c.data, products: p.data, content: s.error ? {} : Object.fromEntries(s.data.map((r) => [r.key, r.value])) };
 }
 
 // ------------------------------------------------------------------ orders
@@ -147,11 +150,11 @@ export async function deleteProduct(p) {
   if (error) throw productError(error);
   removeProductImages(p.images || []);
 }
-// Returns the public URL of the uploaded photo.
-export async function uploadProductImage(file, productId) {
+// Returns the public URL of the uploaded photo. `productId` is the storage folder ('craft' for that section).
+export async function uploadProductImage(file, productId, maxPx = 3000) {
   if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error('Use a JPG, PNG or WebP image.');
   if (isDemo) return blobToDataUrl(await shrinkImage(file, 1200)); // small, so it fits in localStorage
-  const blob = await shrinkImage(file, 3000);
+  const blob = await shrinkImage(file, maxPx);
   if (blob.size > 10 * 1024 * 1024) throw new Error('That photo is too large. Use one under 10 MB.');
   const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
   const path = (productId || 'new') + '/' + crypto.randomUUID().slice(0, 8) + '.' + ext;
@@ -159,6 +162,26 @@ export async function uploadProductImage(file, productId) {
   if (error) throw new Error('The photo could not be uploaded. Check your connection and try again.');
   return supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl;
 }
+// ------------------------------------------------------------------ editable homepage sections
+// One row per section in site_content (e.g. 'craft'). null = never saved, use store.config.js.
+export async function fetchContent(key) {
+  if (isDemo) return demo.content()[key] || null;
+  const { data, error } = await supabase.from('site_content').select('value').eq('key', key).maybeSingle();
+  if (error) throw error;
+  return data ? data.value : null;
+}
+// `prevImages`: photo URLs before editing; ones no longer used are deleted from storage.
+export async function saveContent(key, value, prevImages = [], images = []) {
+  if (isDemo) return demo.saveContent(key, value);
+  const { error } = await supabase.from('site_content').upsert({ key, value, updated_at: new Date().toISOString() });
+  if (error) {
+    if (error.code === '42P01' || /site_content/.test(error.message || '')) throw new Error('The database needs updating first: run the latest supabase/schema.sql.');
+    if (error.code === '42501') throw new Error('This account isn’t allowed to change the site.');
+    throw new Error('Couldn’t save. Check your connection and try again.');
+  }
+  removeProductImages(prevImages.filter((u) => !images.includes(u)));
+}
+
 // Best effort: only touches files in our own bucket; a leftover file does no harm.
 function removeProductImages(urls) {
   const marker = '/storage/v1/object/public/product-images/';
@@ -232,6 +255,12 @@ const demo = {
     try { localStorage.setItem('demo_products_v1', JSON.stringify(next)); }
     catch (e) { throw new Error('Demo mode stores photos in this browser, and it’s full. Remove a photo or connect Supabase.'); }
     return saved;
+  },
+  content() { try { return JSON.parse(localStorage.getItem('demo_content_v1')) || {}; } catch (e) { return {}; } },
+  async saveContent(key, value) {
+    await wait(300);
+    try { localStorage.setItem('demo_content_v1', JSON.stringify({ ...this.content(), [key]: value })); }
+    catch (e) { throw new Error('Demo mode stores photos in this browser, and it’s full. Remove a photo or connect Supabase.'); }
   },
   async deleteProduct(id) { await wait(200); this.save('demo_products_v1', this.products().filter((p) => p.id !== id)); },
   async placeOrder(customer, items) {

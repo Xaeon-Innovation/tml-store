@@ -206,3 +206,15 @@ textarea.input{resize:vertical;line-height:1.5}
 .made-by{display:inline-flex;align-items:center;gap:10px;padding:6px 12px;border-radius:20px;background:#18181B;color:#D4D4D8!important;font-size:12px;text-decoration:none;opacity:.85}
 .made-by:hover{opacity:1}
 .made-by img{height:20px;width:auto;display:block}
+
+/* "Our craft" editor */
+.craft-row{display:grid;gap:14px}
+@media (min-width:640px){.craft-row{grid-template-columns:200px minmax(0,1fr);align-items:start}}
+.craft-photo{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#ECEAE5;display:grid}
+.craft-photo img,.craft-ph{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
+.craft-ph{display:grid;place-items:center;font-size:12.5px;color:var(--muted)}
+.photo-acts label{flex:1;min-height:34px;display:grid;place-items:center;font-size:12.5px;color:var(--muted);cursor:pointer}
+.photo-acts label:hover{color:var(--text);background:#FAF9F7}
+.photo-acts label:focus-within{outline:2px solid var(--accent);outline-offset:-2px}
+.photo-acts label.is-busy{cursor:progress;opacity:.6}
+.photo-acts label+button{border-left:1px solid var(--line)}

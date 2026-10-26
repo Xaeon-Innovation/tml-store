@@ -87,15 +87,16 @@ function Dashboard({ onOut }) {
     catch (e) { flash('Couldn’t update the request. Try again.', true); }
   };
 
-  const sec = ['orders', 'requests', 'products'].includes(route.name) ? route.name : 'overview';
+  const sec = ['orders', 'requests', 'products', 'craft'].includes(route.name) ? route.name : 'overview';
   const newOrders = orders ? orders.filter((o) => o.status === 'New').length : 0;
   const newReqs = requests ? requests.filter((r) => r.status === 'New').length : 0;
   const tabs = [{ id: 'overview', label: 'Overview', path: '' }, { id: 'orders', label: 'Orders', path: 'orders', badge: newOrders }]
     .concat(config.features.customOrders ? [{ id: 'requests', label: 'Custom requests', path: 'requests', badge: newReqs }] : [])
-    .concat([{ id: 'products', label: 'Products', path: 'products' }]);
+    .concat([{ id: 'products', label: 'Products', path: 'products' }, { id: 'craft', label: 'Our craft', path: 'craft' }]);
 
   let body;
   if (sec === 'products') body = <Products arg={route.arg} flash={flash} />;
+  else if (sec === 'craft') body = <CraftEditor flash={flash} />;
   else if (!orders) body = loadErr ? <div className="card empty" role="alert"><p>{loadErr}</p><button className="btn btn-sm" type="button" onClick={refresh}>Try again</button></div> : <p className="loading">Loading orders…</p>;
   else if (sec === 'orders' && route.arg) body = <OrderDetail order={orders.find((o) => o.id === route.arg)} onStatus={setOrderStatus} onPrice={setCustomPrice} />;
   else if (sec === 'orders') body = <OrdersList orders={orders} />;
@@ -121,7 +122,7 @@ function Dashboard({ onOut }) {
         ))}
       </nav>
       <main className="content"><div className="content-in">
-        {loadErr && orders && sec !== 'products' ? <p className="note" role="alert">{loadErr}</p> : null}
+        {loadErr && orders && sec !== 'products' && sec !== 'craft' ? <p className="note" role="alert">{loadErr}</p> : null}
         {body}
       </div></main>
       <div role="status" aria-live="polite">{toast ? <div className={'toast' + (toast.bad ? ' bad' : '')}>{toast.msg}</div> : null}</div>
@@ -350,6 +351,125 @@ function OrderDetail({ order: o, onStatus, onPrice }) {
   );
 }
 
+// ---------------------------------------------------------------- our craft (homepage section)
+// Saved in site_content under 'craft'. Until the first save, the shop shows the copy in store.config.js.
+const MAX_CRAFT_ROWS = 8;
+const blankRow = () => ({ title: '', copy: '', spec: '', image: '' });
+
+function CraftEditor({ flash }) {
+  const [f, setF] = useState(null);
+  const [saved, setSaved] = useState([]); // photo URLs as last saved, so removed ones get deleted
+  const [loadErr, setLoadErr] = useState('');
+  const [failed, setFailed] = useState('');
+  const [tried, setTried] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(-1);
+  const [dirty, setDirty] = useState(false);
+  useLeaveWarning(dirty);
+
+  const load = useCallback(() => api.fetchContent('craft').then((v) => {
+    const base = v || config.home.craft || {};
+    const val = { show: !!base.show, title: base.title || '', intro: base.intro || '', details: (base.details || []).map((d) => ({ ...blankRow(), ...d })) };
+    setF(val); setSaved(val.details.map((d) => d.image).filter(Boolean)); setLoadErr('');
+  }).catch(() => setLoadErr('Couldn’t load this section. Check your connection.')), []);
+  useEffect(() => { load(); }, [load]);
+
+  if (!f) return loadErr ? <div className="card empty" role="alert"><p>{loadErr}</p><button className="btn btn-sm" type="button" onClick={load}>Try again</button></div> : <p className="loading">Loading…</p>;
+
+  const set = (patch) => { setF((v) => ({ ...v, ...patch })); setDirty(true); };
+  const setRow = (i, patch) => set({ details: f.details.map((d, j) => (j === i ? { ...d, ...patch } : d)) });
+  const move = (i, by) => { const d = f.details.slice(); [d[i], d[i + by]] = [d[i + by], d[i]]; set({ details: d }); };
+  const upload = async (i, file) => {
+    if (!file) return;
+    setUploading(i); setFailed('');
+    try { const url = await api.uploadProductImage(file, 'craft', 1600); setF((v) => ({ ...v, details: v.details.map((d, j) => (j === i ? { ...d, image: url } : d)) })); setDirty(true); }
+    catch (x) { setFailed(x.message); }
+    setUploading(-1);
+  };
+
+  const errors = {};
+  if (tried) {
+    if (f.show && !f.title.trim()) errors.title = 'Enter a heading, or untick “Show this section”.';
+    f.details.forEach((d, i) => { if (!d.title.trim()) errors['row' + i] = 'Give this detail a title, or remove it.'; });
+  }
+  const save = async (e) => {
+    e.preventDefault(); setTried(true); setFailed('');
+    const hasErr = (f.show && !f.title.trim()) || f.details.some((d) => !d.title.trim());
+    if (hasErr) { window.scrollTo(0, 0); return; }
+    const value = { show: f.show, title: f.title.trim(), intro: f.intro.trim(), details: f.details.map((d) => ({ title: d.title.trim(), copy: d.copy.trim(), spec: d.spec.trim(), image: d.image })) };
+    const images = value.details.map((d) => d.image).filter(Boolean);
+    setBusy(true);
+    try { await api.saveContent('craft', value, saved, images); setSaved(images); setDirty(false); setTried(false); flash('“Our craft” saved. It’s live on the homepage.'); }
+    catch (x) { setFailed(x.message); window.scrollTo(0, 0); }
+    setBusy(false);
+  };
+
+  return (
+    <form noValidate onSubmit={save} style={{ display: 'grid', gap: 20 }}>
+      <div className="page-head">
+        <div><h1>Our craft</h1><p className="muted">The “Our craft” section of the homepage: how the pieces are made and finished.</p></div>
+        <a className="btn btn-sm" href="/craft" target="_blank" rel="noopener">View on the site</a>
+      </div>
+      {Object.keys(errors).length ? <p className="note err" role="alert">Please check the highlighted fields.</p> : failed ? <p className="note err" role="alert">{failed}</p> : null}
+
+      <section className="card card-pad form-grid" aria-labelledby="cr-h">
+        <h2 id="cr-h" className="sec-h">Section</h2>
+        <label className="check"><input type="checkbox" checked={f.show} onChange={(e) => set({ show: e.target.checked })} /><span>Show this section on the homepage<span className="hint">Also shows “Our Craft” in the menu.</span></span></label>
+        <div className="field">
+          <label htmlFor="cr-title">Heading</label>
+          <input className="input" id="cr-title" value={f.title} onChange={(e) => set({ title: e.target.value })} aria-invalid={errors.title ? 'true' : 'false'} />
+          {errors.title ? <p className="err">{errors.title}</p> : null}
+        </div>
+        <div className="field">
+          <label htmlFor="cr-intro">Introduction</label>
+          <textarea className="input" id="cr-intro" rows={3} value={f.intro} onChange={(e) => set({ intro: e.target.value })} />
+        </div>
+      </section>
+
+      <section className="card card-pad form-grid" aria-labelledby="crd-h">
+        <div className="sec-row"><h2 id="crd-h" className="sec-h">Details</h2><span className="small muted">{f.details.length} of {MAX_CRAFT_ROWS}</span></div>
+        {f.details.length ? (
+          <ul className="sizes">
+            {f.details.map((d, i) => (
+              <li key={i} className="size-card">
+                <div className="craft-row">
+                  <div className="craft-photo">
+                    {d.image ? <img src={d.image} alt={d.title || 'Photo ' + (i + 1)} /> : <span className="craft-ph">No photo</span>}
+                    <span className="photo-acts">
+                      <label className={uploading === i ? 'is-busy' : ''}>
+                        <input className="sr" type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading >= 0} onChange={(e) => { upload(i, e.target.files[0]); e.target.value = ''; }} />
+                        {uploading === i ? 'Uploading…' : d.image ? 'Replace' : 'Add photo'}
+                      </label>
+                      {d.image ? <button type="button" onClick={() => setRow(i, { image: '' })}>Remove</button> : null}
+                    </span>
+                  </div>
+                  <div className="form-grid">
+                    <div className="field"><label htmlFor={'cd-t' + i}>Title</label><input className="input" id={'cd-t' + i} placeholder="e.g. Surface" value={d.title} onChange={(e) => setRow(i, { title: e.target.value })} aria-invalid={errors['row' + i] ? 'true' : 'false'} /></div>
+                    <div className="field"><label htmlFor={'cd-c' + i}>Description</label><textarea className="input" id={'cd-c' + i} rows={3} value={d.copy} onChange={(e) => setRow(i, { copy: e.target.value })} /></div>
+                    <div className="field"><label htmlFor={'cd-s' + i}>Small detail <span className="muted">(optional)</span></label><input className="input" id={'cd-s' + i} placeholder="e.g. Matte canvas, 380 gsm" value={d.spec} onChange={(e) => setRow(i, { spec: e.target.value })} /></div>
+                  </div>
+                </div>
+                {errors['row' + i] ? <p className="err">{errors['row' + i]}</p> : null}
+                <div className="actions">
+                  <button className="btn btn-sm" type="button" disabled={i === 0} onClick={() => move(i, -1)}>↑ Move up</button>
+                  <button className="btn btn-sm" type="button" disabled={i === f.details.length - 1} onClick={() => move(i, 1)}>↓ Move down</button>
+                  <button className="btn btn-sm btn-danger" type="button" onClick={() => set({ details: f.details.filter((_, j) => j !== i) })}>Remove</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="small muted">No details yet.</p>}
+        {f.details.length < MAX_CRAFT_ROWS ? <button className="btn btn-sm" type="button" onClick={() => set({ details: f.details.concat(blankRow()) })} style={{ justifySelf: 'start' }}>Add a detail</button> : null}
+        <p className="hint">Photos: JPG, PNG or WebP. Close-ups work best — the surface, an edge, the back, the hanging kit.</p>
+      </section>
+
+      <div className="actions save-bar">
+        <button className="btn btn-primary" type="submit" disabled={busy || uploading >= 0 || !dirty}>{busy ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}</button>
+      </div>
+    </form>
+  );
+}
+
 // Price for a custom-size line, agreed with the customer by phone. Saving it
 // updates the order subtotal (and so the revenue once the order is Completed).
 function CustomPrice({ id, item, onSave }) {
@@ -456,6 +576,16 @@ function RequestDetail({ req: r, onStatus }) {
 }
 
 // ---------------------------------------------------------------- products
+// Browser "leave site?" prompt while a form has unsaved changes.
+function useLeaveWarning(dirty) {
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+}
+
 const MAX_PHOTOS = 8;
 const slugify = (s) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 const fromPrice = (p) => { const ps = (p.sizes || []).map((s) => Number(s.price) || 0); return ps.length ? (ps.length > 1 ? 'From ' : '') + money(Math.min(...ps)) : '—'; };
@@ -553,13 +683,7 @@ function ProductEditor({ product, collections, products, onSaved, onDeleted }) {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState('');
   const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    if (!dirty) return undefined;
-    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  useLeaveWarning(dirty);
 
   const set = (patch) => { setF((v) => ({ ...v, ...patch })); setDirty(true); };
   const setName = (name) => set(isNew && !idTouched ? { name, id: slugify(name) } : { name });

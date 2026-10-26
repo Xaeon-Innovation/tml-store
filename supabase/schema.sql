@@ -67,6 +67,15 @@ create table if not exists public.custom_requests (
 );
 create index if not exists custom_requests_created_idx on public.custom_requests (created_at desc);
 
+-- Homepage sections the owner edits in the dashboard, one row per section.
+-- key 'craft' = the "Our craft" section: {show, title, intro, details:[{title, copy, spec, image}]}.
+-- Missing rows fall back to the copy in store.config.js.
+create table if not exists public.site_content (
+  key        text primary key,
+  value      jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 -- Who can open the dashboard. Add the owner after creating their login (see README).
 create table if not exists public.admins (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -249,9 +258,10 @@ alter table public.products        enable row level security;
 alter table public.orders          enable row level security;
 alter table public.custom_requests enable row level security;
 alter table public.admins          enable row level security;
+alter table public.site_content    enable row level security;
 
-grant select on public.collections, public.products to anon, authenticated;
-grant insert, update, delete on public.collections, public.products to authenticated;
+grant select on public.collections, public.products, public.site_content to anon, authenticated;
+grant insert, update, delete on public.collections, public.products, public.site_content to authenticated;
 grant select, update on public.orders, public.custom_requests to authenticated;
 grant select on public.admins to authenticated;
 
@@ -264,6 +274,8 @@ drop policy if exists "admins update orders"        on public.orders;
 drop policy if exists "admins read requests"        on public.custom_requests;
 drop policy if exists "admins update requests"      on public.custom_requests;
 drop policy if exists "see own admin row"           on public.admins;
+drop policy if exists "site content is public"      on public.site_content;
+drop policy if exists "admins manage site content"  on public.site_content;
 
 create policy "collections are public"      on public.collections for select using (true);
 create policy "admins manage collections"   on public.collections for all to authenticated using (public.is_admin()) with check (public.is_admin());
@@ -275,6 +287,8 @@ create policy "admins update orders"        on public.orders for update to authe
 create policy "admins read requests"        on public.custom_requests for select to authenticated using (public.is_admin());
 create policy "admins update requests"      on public.custom_requests for update to authenticated using (public.is_admin()) with check (public.is_admin());
 create policy "see own admin row"           on public.admins for select to authenticated using (user_id = auth.uid());
+create policy "site content is public"      on public.site_content for select using (true);
+create policy "admins manage site content"  on public.site_content for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- ---------------------------------------------------------------- file storage
 -- references:     customers' images for custom requests (private, upload-only for the public)

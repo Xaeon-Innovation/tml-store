@@ -65,6 +65,8 @@ export default function StoreApp() {
   }, [bagOpen, menuOpen]);
 
   const collections = cat.collections;
+  // "Our craft": the owner's version from the dashboard, else the copy in store.config.js
+  const craft = (cat.content && cat.content.craft) || config.home.craft;
   const products = useMemo(() => cat.products.map((p) => decorate(p, collections)), [cat.products, collections]);
   const byId = (id) => products.find((p) => p.id === id);
 
@@ -120,7 +122,7 @@ export default function StoreApp() {
         <button className="btn btn-primary" type="button" onClick={load}>Try again</button>
       </section>
     );
-  } else if (r === 'home' || r === 'craft') page = <Home products={products} collections={collections} />;
+  } else if (r === 'home' || r === 'craft') page = <Home products={products} collections={collections} craft={craft} />;
   else if (r === 'shop') page = <Catalogue products={products} collections={collections} collId={route.arg} />;
   else if (r === 'p') page = <Product product={byId(route.arg)} products={products} onAdd={addToBag} layerOpen={layerOpen} />;
   else if (r === 'checkout') page = <Checkout lines={lines} subtotal={subtotal} hasCustom={hasCustom} onPlaced={onPlaced} openBag={(e) => openLayer(setBagOpen)} />;
@@ -143,7 +145,7 @@ export default function StoreApp() {
           <a className="logo" href="/" aria-label={config.brand.fullName + ' — home'}><span className="logo-mark">{config.brand.mark}</span><span className="logo-sub">{config.brand.sub}</span></a>
           <nav className="nav" aria-label="Primary">
             <a className={navCls(r === 'shop' || r === 'p')} href="/shop" aria-current={r === 'shop' ? 'page' : undefined}>Collections</a>
-            {config.home.craft && config.home.craft.show ? <a className="nav-link" href="/craft">Our Craft</a> : null}
+            {craft && craft.show ? <a className="nav-link" href="/craft">Our Craft</a> : null}
             {config.features.customOrders ? <a className={navCls(r === 'custom')} href="/custom" aria-current={r === 'custom' ? 'page' : undefined}>Custom Orders</a> : null}
           </nav>
           <div className="hdr-actions">
@@ -238,7 +240,7 @@ export default function StoreApp() {
         </div>
         <nav className="menu-nav" aria-label="Menu">
           <a className="menu-big" href="/shop">Collections</a>
-          {config.home.craft && config.home.craft.show ? <a className="menu-big" href="/craft">Our Craft</a> : null}
+          {craft && craft.show ? <a className="menu-big" href="/craft">Our Craft</a> : null}
           {config.features.customOrders ? <a className="menu-big" href="/custom">Custom Orders</a> : null}
         </nav>
         <div className="menu-sub">

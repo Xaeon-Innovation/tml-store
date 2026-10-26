@@ -9,7 +9,7 @@ const pad = (n) => String(n).padStart(2, '0');
 // =====================================================================
 // HOME
 // =====================================================================
-export function Home({ products, collections }) {
+export function Home({ products, collections, craft }) {
   const H = config.home;
   const byId = (id) => products.find((p) => p.id === id);
   const hero = byId(H.heroProductId) || products.find((p) => p.featured) || products[0];
@@ -104,17 +104,17 @@ export function Home({ products, collections }) {
         </section>
       ) : null}
 
-      {H.craft && H.craft.show ? (
+      {craft && craft.show ? (
         <section className="sec craft" id="craft" aria-labelledby="craft-h">
           <div className="wrap craft-grid">
             <div className="craft-intro reveal">
               <p className="label">{num()} — Our craft</p>
-              <h2 id="craft-h" className="display h2">{H.craft.title}</h2>
-              <p>{H.craft.intro}</p>
+              <h2 id="craft-h" className="display h2">{craft.title}</h2>
+              <p>{craft.intro}</p>
             </div>
             <div className="reveal">
               <ol className="detail-list" style={{ marginTop: 0 }}>
-                {H.craft.details.map((d, i) => (
+                {(craft.details || []).map((d, i) => (
                   <li key={i} className="detail-row">
                     <span className="label detail-num">{pad(i + 1)}</span>
                     <span>
@@ -122,7 +122,7 @@ export function Home({ products, collections }) {
                       <span className="detail-copy">{d.copy}</span>
                       {d.spec ? <span className="detail-spec">{d.spec}</span> : null}
                     </span>
-                    {d.image ? <img className="photo" src={d.image} alt="" style={{ objectFit: 'cover', padding: 0 }} />
+                    {d.image ? <img className="photo" src={d.image} alt={d.title} loading="lazy" style={{ objectFit: 'cover', padding: 0 }} />
                       : <span className="photo"><span className="label photo-label">Photo · {d.title.toLowerCase()}</span></span>}
                   </li>
                 ))}
