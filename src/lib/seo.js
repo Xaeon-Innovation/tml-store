@@ -198,7 +198,7 @@ export function llmsTxt(data, config, origin) {
     '- After an order request the shop calls the customer to confirm the order and the delivery fee.',
     `- Prices are in ${config.currency}.`,
     config.features.customOrders ? `- Custom pieces and custom sizes on request: ${origin}/custom` : '',
-    c.phone ? `- Phone: ${c.phone}` : '', c.whatsapp ? `- WhatsApp: https://wa.me/${String(c.whatsapp).replace(/\D/g, '')}` : '', c.email ? `- Email: ${c.email}` : '',
+    c.phone ? `- Phone: ${c.phone}` : '', c.whatsapp ? `- WhatsApp: https://wa.me/${String(c.whatsapp).replace(/\D/g, '')}` : '', c.email ? `- Email: ${[c.email, c.email2].filter(Boolean).join(', ')}` : '',
     '', '## Collections',
     ...(data ? data.collections.map((x) => `- [${x.name}](${origin}/shop/${encodeURIComponent(x.id)}): ${x.intro}`) : [`- [All wall art](${origin}/shop)`]),
   ];

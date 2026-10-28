@@ -125,7 +125,7 @@ export default function StoreApp() {
         <button className="btn btn-primary" type="button" onClick={load}>Try again</button>
       </section>
     );
-  } else if (r === 'home' || r === 'craft') page = <Home products={products} collections={collections} craft={craft} heroContent={heroContent} />;
+  } else if (r === 'home' || r === 'craft') page = <Home products={products} collections={collections} craft={craft} heroContent={heroContent} reviews={cat.reviews || []} />;
   else if (r === 'shop') page = <Catalogue products={products} collections={collections} collId={route.arg} />;
   else if (r === 'p') page = <Product product={byId(route.arg)} products={products} onAdd={addToBag} layerOpen={layerOpen} />;
   else if (r === 'checkout') page = <Checkout lines={lines} subtotal={subtotal} hasCustom={hasCustom} onPlaced={onPlaced} openBag={(e) => openLayer(setBagOpen)} />;
@@ -145,7 +145,7 @@ export default function StoreApp() {
       <a className="skip" href="#main" onClick={(e) => { e.preventDefault(); const m = document.getElementById('main'); if (m) { m.setAttribute('tabindex', '-1'); m.focus(); } }}>Skip to content</a>
       <header className="hdr">
         <div className="wrap hdr-in">
-          <a className="logo" href="/" aria-label={config.brand.fullName + ' — home'}><span className="logo-mark">{config.brand.mark}</span><span className="logo-sub">{config.brand.sub}</span></a>
+          <a className="logo" href="/" aria-label={config.brand.fullName + ' — home'}><LogoInner /></a>
           <nav className="nav" aria-label="Primary">
             <a className={navCls(r === 'shop' || r === 'p')} href="/shop" aria-current={r === 'shop' ? 'page' : undefined}>Collections</a>
             {craft && craft.show ? <a className="nav-link" href="/craft">Our Craft</a> : null}
@@ -166,13 +166,21 @@ export default function StoreApp() {
         <div className="wrap">
           <div className="ftr-grid">
             <div className="ftr-brand">
-              <span className="logo"><span className="logo-mark">{config.brand.mark}</span><span className="logo-sub">{config.brand.sub}</span></span>
+              <span className="logo"><LogoInner /></span>
               <p>{config.brand.footerLine}</p>
               {config.seo.arabicLine ? <p className="ftr-ar" lang="ar" dir="rtl">{config.seo.arabicLine}</p> : null}
             </div>
             <ContactCol />
             {config.social.some((s) => s.url) ? (
-              <div className="ftr-col"><h3>Follow</h3>{config.social.filter((s) => s.url).map((s) => <a key={s.label} href={s.url} target="_blank" rel="noopener noreferrer">{s.label}</a>)}</div>
+              <div className="ftr-col">
+                <h3>Follow</h3>
+                <div className="ftr-social">
+                  {config.social.filter((s) => s.url).map((s) => {
+                    const I = Icon[s.label.toLowerCase()];
+                    return <a key={s.label} href={s.url} target="_blank" rel="noopener noreferrer" aria-label={s.label} title={s.label}>{I ? <I /> : s.label}</a>;
+                  })}
+                </div>
+              </div>
             ) : null}
             <div className="ftr-col">
               <h3>Shop</h3>
@@ -240,7 +248,7 @@ export default function StoreApp() {
 
       <div className={'menu' + (menuOpen ? ' on' : '')} role="dialog" aria-modal="true" aria-label="Menu" onKeyDown={(e) => { if (e.key === 'Escape') closeLayer(setMenuOpen); }}>
         <div className="wrap hdr-in" style={{ borderBottom: '1px solid var(--line)' }}>
-          <span className="logo"><span className="logo-mark">{config.brand.mark}</span><span className="logo-sub">{config.brand.sub}</span></span>
+          <span className="logo"><LogoInner /></span>
           <button className="icon-btn" type="button" ref={menuClose} onClick={() => closeLayer(setMenuOpen)} aria-label="Close menu"><Icon.close /></button>
         </div>
         <nav className="menu-nav" aria-label="Menu">
@@ -269,16 +277,31 @@ export default function StoreApp() {
   );
 }
 
+function LogoInner() {
+  const b = config.brand;
+  return (
+    <>
+      {b.logo ? <img className="logo-img" src={b.logo} alt="" width="156" height="256" /> : null}
+      <span className="logo-mark">{b.mark}</span><span className="logo-sub">{b.sub}</span>
+    </>
+  );
+}
+
 function ContactCol() {
   const c = config.contact;
   const wa = c.whatsapp ? 'https://wa.me/' + String(c.whatsapp).replace(/\D/g, '') : '';
-  if (!c.phone && !wa && !c.email) return null;
+  const tel = c.phone ? 'tel:' + c.phone.replace(/[^\d+]/g, '').replace(/^0/, '+' + config.phoneCountryCode) : '';
+  // WhatsApp is stored in international form; show it the local way (201… → 01…)
+  const waShown = String(c.whatsapp || '').replace(/\D/g, '').replace(new RegExp('^' + config.phoneCountryCode), '0');
+  const emails = [c.email, c.email2].filter(Boolean);
+  if (!tel && !wa && !emails.length && !c.location) return null;
   return (
-    <div className="ftr-col">
+    <div className="ftr-col ftr-contact">
       <h3>Contact</h3>
-      {c.phone ? <a href={'tel:' + c.phone.replace(/[^\d+]/g, '')}>{c.phone}</a> : null}
-      {wa ? <a href={wa} target="_blank" rel="noopener noreferrer">WhatsApp</a> : null}
-      {c.email ? <a href={'mailto:' + c.email}>{c.email}</a> : null}
+      {wa ? <a href={wa} target="_blank" rel="noopener noreferrer" aria-label={'WhatsApp ' + waShown}><Icon.whatsapp /><span>{waShown}</span></a> : null}
+      {tel ? <a href={tel} aria-label={'Call ' + c.phone}><Icon.phone /><span>{c.phone}</span></a> : null}
+      {emails.map((e) => <a key={e} href={'mailto:' + e}><Icon.mail /><span>{e}</span></a>)}
+      {c.location ? <p><Icon.pin /><span>{c.location}</span></p> : null}
     </div>
   );
 }

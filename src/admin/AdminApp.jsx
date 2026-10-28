@@ -4,7 +4,7 @@ import * as api from '../lib/api.js';
 import { ORDER_FLOW, ORDER_STATUSES, REQUEST_STATUSES, LAYOUTS, dateTime, dayKey, longToday, money, monthKey, monthLabel, plural, shiftDay, shiftMonth, shortDate, todayKey, customerWhatsapp } from '../lib/format.js';
 import { navigate, useRoute } from '../lib/router.js';
 
-const PILL = { New: 'st-new', Confirmed: 'st-confirmed', Shipped: 'st-shipped', Completed: 'st-completed', Cancelled: 'st-cancelled', Contacted: 'st-contacted', Quoted: 'st-quoted', Closed: 'st-closed', Featured: 'st-new', Hidden: 'st-closed', 'Sold out': 'st-cancelled' };
+const PILL = { New: 'st-new', Confirmed: 'st-confirmed', Shipped: 'st-shipped', Completed: 'st-completed', Cancelled: 'st-cancelled', Contacted: 'st-contacted', Quoted: 'st-quoted', Closed: 'st-closed', Featured: 'st-new', Hidden: 'st-closed', 'Sold out': 'st-cancelled', Pending: 'st-new', Published: 'st-completed' };
 const Pill = ({ s }) => <span className={'pill ' + (PILL[s] || 'st-closed')}>{s}</span>;
 const Chevron = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 8H2M7 3L2 8l5 5" /></svg>;
 const MONTHS_SHOWN = 6;
@@ -55,13 +55,16 @@ function Dashboard({ onOut }) {
   const route = useRoute();
   const [orders, setOrders] = useState(null);
   const [requests, setRequests] = useState(null);
+  const [reviews, setReviews] = useState(null);
   const [loadErr, setLoadErr] = useState('');
   const [toast, setToast] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [o, r] = await Promise.all([api.fetchOrders(sinceIso()), config.features.customOrders ? api.fetchRequests() : Promise.resolve([])]);
-      setOrders(o); setRequests(r); setLoadErr('');
+      const [o, r, rv] = await Promise.all([api.fetchOrders(sinceIso()), config.features.customOrders ? api.fetchRequests() : Promise.resolve([]),
+        // a missing reviews table (schema.sql not re-run yet) must not hide the orders
+        config.features.reviews ? api.fetchReviews().catch(() => null) : Promise.resolve([])]);
+      setOrders(o); setRequests(r); setReviews(rv); setLoadErr('');
     } catch (e) { setLoadErr('Couldn’t load the latest data. Check your connection.'); }
   }, []);
   useEffect(() => {
@@ -87,11 +90,23 @@ function Dashboard({ onOut }) {
     catch (e) { flash('Couldn’t update the request. Try again.', true); }
   };
 
-  const sec = ['orders', 'requests', 'products', 'collections', 'homepage', 'craft'].includes(route.name) ? route.name : 'overview';
+  const setReviewStatus = async (rv, status) => {
+    try { const u = await api.updateReviewStatus(rv.id, status); setReviews((list) => list.map((x) => (x.id === rv.id ? u : x))); flash('Review by ' + rv.name + (status === 'Published' ? ' is now on the homepage.' : ' hidden.')); }
+    catch (e) { flash('Couldn’t update the review. Try again.', true); }
+  };
+  const removeReview = async (rv) => {
+    if (!window.confirm('Delete the review by ' + rv.name + '? This can’t be undone.\n\nTip: “Hide” takes it off the homepage but keeps it.')) return;
+    try { await api.deleteReview(rv.id); setReviews((list) => list.filter((x) => x.id !== rv.id)); flash('Review deleted.'); }
+    catch (e) { flash('Couldn’t delete the review. Try again.', true); }
+  };
+
+  const sec = ['orders', 'requests', 'reviews', 'products', 'collections', 'homepage', 'craft'].includes(route.name) ? route.name : 'overview';
   const newOrders = orders ? orders.filter((o) => o.status === 'New').length : 0;
   const newReqs = requests ? requests.filter((r) => r.status === 'New').length : 0;
+  const pendingReviews = reviews ? reviews.filter((r) => r.status === 'Pending').length : 0;
   const tabs = [{ id: 'overview', label: 'Overview', path: '' }, { id: 'orders', label: 'Orders', path: 'orders', badge: newOrders }]
     .concat(config.features.customOrders ? [{ id: 'requests', label: 'Custom requests', path: 'requests', badge: newReqs }] : [])
+    .concat(config.features.reviews ? [{ id: 'reviews', label: 'Reviews', path: 'reviews', badge: pendingReviews }] : [])
     .concat([{ id: 'products', label: 'Products', path: 'products' }, { id: 'collections', label: 'Collections', path: 'collections' },
       { id: 'homepage', label: 'Homepage', path: 'homepage' }, { id: 'craft', label: 'Our craft', path: 'craft' }]);
   const ownData = ['products', 'collections', 'homepage', 'craft'].includes(sec); // sections that load their own data
@@ -106,6 +121,7 @@ function Dashboard({ onOut }) {
   else if (sec === 'orders') body = <OrdersList orders={orders} />;
   else if (sec === 'requests' && route.arg) body = <RequestDetail req={(requests || []).find((r) => r.id === route.arg)} onStatus={setReqStatus} />;
   else if (sec === 'requests') body = <RequestsList requests={requests || []} />;
+  else if (sec === 'reviews') body = <ReviewsList reviews={reviews} onStatus={setReviewStatus} onDelete={removeReview} />;
   else body = <Overview orders={orders} newOrders={newOrders} />;
 
   return (
@@ -824,6 +840,51 @@ function RequestDetail({ req: r, onStatus }) {
           <div className="actions"><a className="btn btn-sm" href={'tel:' + intl}>Call</a></div>
         </section>
       </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- reviews
+const REVIEW_STATUSES = ['Pending', 'Published', 'Hidden'];
+const StarsText = ({ n }) => <span className="rv-stars" aria-label={n + ' out of 5 stars'}>{'★'.repeat(n)}<span className="rv-stars-off">{'★'.repeat(5 - n)}</span></span>;
+
+function ReviewsList({ reviews, onStatus, onDelete }) {
+  const [status, setStatus] = useState('Pending');
+  const [busy, setBusy] = useState(null);
+  if (!reviews) return <div className="card empty" role="alert"><p>Couldn’t load reviews. If you just added this feature, re-run supabase/schema.sql in the Supabase SQL editor.</p></div>;
+  const rows = reviews.filter((r) => status === 'all' || r.status === status);
+  const run = async (fn) => { setBusy(true); try { await fn(); } finally { setBusy(null); } };
+  return (
+    <>
+      <div className="page-head"><div><h1>Reviews</h1><p className="muted">Customers send reviews from the homepage. Only the ones you publish are shown there.</p></div></div>
+      <section className="card">
+        <div className="toolbar">
+          <div className="fchips" role="group" aria-label="Filter by status">
+            {REVIEW_STATUSES.concat(['all']).map((s) => <button key={s} className={'fchip' + (status === s ? ' is-on' : '')} type="button" aria-pressed={status === s} onClick={() => setStatus(s)}>{s === 'all' ? 'All' : s} <span className="fchip-n">{reviews.filter((r) => s === 'all' || r.status === s).length}</span></button>)}
+          </div>
+        </div>
+        {rows.length ? (
+          <ul className="plist">
+            {rows.map((r) => (
+              <li key={r.id} className="rv-row">
+                <div className="rv-row-top">
+                  <StarsText n={r.rating} />
+                  <span style={{ fontWeight: 500 }}>{r.name}</span>
+                  {r.region ? <span className="muted small">{r.region}</span> : null}
+                  <span className="muted small">{dateTime(r.created_at)}</span>
+                  <Pill s={r.status} />
+                </div>
+                <p className="quote">{r.body}</p>
+                <div className="actions">
+                  {r.status !== 'Published' ? <button className="btn btn-sm btn-primary" type="button" disabled={busy} onClick={() => run(() => onStatus(r, 'Published'))}>Publish</button> : null}
+                  {r.status !== 'Hidden' ? <button className="btn btn-sm" type="button" disabled={busy} onClick={() => run(() => onStatus(r, 'Hidden'))}>Hide</button> : null}
+                  <button className="btn btn-sm btn-danger" type="button" disabled={busy} onClick={() => run(() => onDelete(r))}>Delete</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : <div className="empty">{status === 'Pending' ? 'No reviews waiting. New ones appear here.' : 'No reviews with this status.'}</div>}
+      </section>
     </>
   );
 }

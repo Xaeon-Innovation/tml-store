@@ -9,18 +9,21 @@ export { isDemo };
 
 // ------------------------------------------------------------------ catalogue
 // content: owner-edited homepage sections by key (see fetchContent); {} if none yet.
+// reviews: published customer reviews, newest first.
 export async function fetchCatalog() {
-  if (isDemo) return { collections: demo.collections(), products: demo.products().filter((p) => p.visible), content: demo.content() };
-  const [c, p, s] = await Promise.all([
+  if (isDemo) return { collections: demo.collections(), products: demo.products().filter((p) => p.visible), content: demo.content(), reviews: demo.reviews().filter((r) => r.status === 'Published').slice(0, MAX_REVIEWS_SHOWN) };
+  const [c, p, s, rv] = await Promise.all([
     supabase.from('collections').select('*').order('sort'),
     supabase.from('products').select('*').eq('visible', true).order('sort'),
     supabase.from('site_content').select('key,value'),
+    supabase.from('reviews').select('id,name,region,rating,body,created_at').eq('status', 'Published').order('created_at', { ascending: false }).limit(MAX_REVIEWS_SHOWN),
   ]);
   if (c.error) throw c.error;
   if (p.error) throw p.error;
   // a missing site_content table must not break the shop: fall back to store.config.js
-  return { collections: c.data, products: p.data, content: s.error ? {} : Object.fromEntries(s.data.map((r) => [r.key, r.value])) };
+  return { collections: c.data, products: p.data, content: s.error ? {} : Object.fromEntries(s.data.map((r) => [r.key, r.value])), reviews: rv.error ? [] : rv.data };
 }
+const MAX_REVIEWS_SHOWN = 30;
 
 // ------------------------------------------------------------------ orders
 // items: [{ product_id, size_index, qty }]. Prices are always worked out on
@@ -52,8 +55,17 @@ export async function submitCustomRequest(fields, files) {
   return data; // { ref }
 }
 
+// fields: { name, region, rating, body }. Saved as Pending until the owner publishes it.
+export async function submitReview(fields) {
+  if (isDemo) return demo.submitReview(fields);
+  const { error } = await supabase.rpc('submit_review', { p_review: fields });
+  if (error) throw friendly(error);
+}
+
 function friendly(error) {
   const m = String((error && error.message) || '');
+  if (/invalid_duplicate/.test(m)) return new Error('We already have this review. Thank you!');
+  if (/rate_limited/.test(m)) return new Error('We’re getting a lot of reviews right now. Please try again in an hour.');
   if (/out_of_stock/.test(m)) return new Error('A piece in your bag has just sold out. Remove it from your bag and try again.');
   if (/invalid_|missing_/.test(m)) return new Error('Some details were not accepted. Check the form and try again.');
   if (/Failed to fetch|NetworkError/i.test(m)) return new Error('No connection. Check your internet and try again.');
@@ -121,6 +133,25 @@ export async function requestImageUrls(paths) {
   const { data, error } = await supabase.storage.from('references').createSignedUrls(paths, 3600);
   if (error) return [];
   return data.map((d) => d.signedUrl).filter(Boolean);
+}
+
+// All reviews, any status (dashboard).
+export async function fetchReviews() {
+  if (isDemo) return demo.reviews();
+  const { data, error } = await supabase.from('reviews').select('*').order('created_at', { ascending: false }).limit(1000);
+  if (error) throw error;
+  return data;
+}
+export async function updateReviewStatus(id, status) {
+  if (isDemo) return demo.setReviewStatus(id, status);
+  const { data, error } = await supabase.from('reviews').update({ status }).eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+}
+export async function deleteReview(id) {
+  if (isDemo) return demo.deleteReview(id);
+  const { error } = await supabase.from('reviews').delete().eq('id', id);
+  if (error) throw error;
 }
 
 // ------------------------------------------------------------------ products (dashboard)
@@ -335,6 +366,19 @@ const demo = {
     this.save('demo_requests_v1', [r].concat(this.requests()));
     return { ref: r.ref };
   },
+  reviews() { return this.load('demo_reviews_v1', seedReviews); },
+  async submitReview(fields) {
+    await wait(600);
+    if (this.reviews().some((r) => r.body === fields.body)) throw new Error('We already have this review. Thank you!');
+    this.save('demo_reviews_v1', [{ id: crypto.randomUUID(), ...fields, status: 'Pending', created_at: new Date().toISOString() }].concat(this.reviews()));
+  },
+  async setReviewStatus(id, status) {
+    await wait(200);
+    let out;
+    this.save('demo_reviews_v1', this.reviews().map((r) => (r.id === id ? (out = { ...r, status }) : r)));
+    return out;
+  },
+  async deleteReview(id) { await wait(200); this.save('demo_reviews_v1', this.reviews().filter((r) => r.id !== id)); },
   async setRequestStatus(id, status) {
     let out;
     const list = this.requests().map((r) => (r.id === id ? (out = { ...r, status }) : r));
@@ -376,4 +420,16 @@ function seedRequests() {
     { id: 'demo-r2', ref: makeRef(config.customRefPrefix, new Date(now - 2 * DAY)), name: 'Mostafa Hegazy', phone: '012 5566 7702', email: '', region: 'Giza', layout: 'single', size: '60 × 75 cm', description: 'A framed print of artwork I drew myself, for a gift.', image_paths: ['drawing.png'], status: 'Contacted', created_at: new Date(now - 2 * DAY).toISOString() },
     { id: 'demo-r3', ref: makeRef(config.customRefPrefix, new Date(now - 6 * DAY)), name: 'Habiba Fouad', phone: '011 6677 8803', email: '', region: 'Alexandria', layout: 'unsure', size: '', description: 'A landscape from a game I love for a 2.5 m wall. Not sure if three or five panels works better.', image_paths: [], status: 'Quoted', created_at: new Date(now - 6 * DAY).toISOString() },
   ];
+}
+function seedReviews() {
+  const now = Date.now(), DAY = 864e5;
+  return [
+    ['Mariam A.', 'Cairo', 5, 'The five-panel piece looks even better on the wall than in the photos. Delivered on time and well packed.', 'Published', 1],
+    ['Omar H.', 'Giza', 5, 'Great print quality and the frame feels solid. They called to confirm the order the same day.', 'Published', 4],
+    ['Salma F.', 'Alexandria', 4, 'Beautiful colours. Delivery took a couple of days longer than I expected, but it was worth the wait.', 'Published', 9],
+    ['Youssef T.', 'Mansoura', 5, 'Ordered a custom size for my office wall and it fits perfectly. Very helpful on the phone.', 'Published', 15],
+    ['Hana I.', 'Cairo', 5, 'My second order from TML. The three-panel set completely changed my living room.', 'Published', 22],
+    ['Karim M.', 'Port Said', 4, 'Good quality for the price, and paying on delivery made it easy to trust them.', 'Published', 30],
+    ['Laila S.', 'Giza', 5, 'Bought one as a gift and my friend loved it. Lovely finish on the edges.', 'Pending', 0.3],
+  ].map(([name, region, rating, body, status, age], i) => ({ id: 'demo-rv' + i, name, region, rating, body, status, created_at: new Date(now - age * DAY).toISOString() }));
 }

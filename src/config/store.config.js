@@ -9,9 +9,10 @@ const storeConfig = {
   brand: {
     mark: 'TML',               // big bold part of the logo
     sub: 'Store',              // small spaced-out part of the logo
+    logo: '/tml-logo.png',     // picture shown before the name in the header, menu and footer (white, for the dark theme); blank = text only
     fullName: 'TML Store',     // used in page titles, emails, footer
     footerLine: 'Statement wall art, framed artwork and multi-panel collections.',
-    alternateNames: ['The Mother Lord', 'TML', 'تي إم إل'], // other names people search for
+    alternateNames: ['The Mother Lode', 'TML', 'تي إم إل'], // other names people search for
   },
 
   // ---- Search engines & AI search ------------------------------------
@@ -19,15 +20,15 @@ const storeConfig = {
   seo: {
     siteUrl: '',               // the main address once the domain is live, e.g. 'https://tmlstore.com' (no trailing slash).
                                // Blank = whatever address the site is opened on.
-    title: 'TML Store — The Mother Lord | براويز وتابلوهات حائط في مصر',
-    description: 'TML Store (The Mother Lord): framed wall art, براويز and 3- and 5-panel تابلوهات for every room. Delivery to every governorate in Egypt, cash on delivery.',
+    title: 'TML Store — The Mother Lode | براويز وتابلوهات حائط في مصر',
+    description: 'TML Store (The Mother Lode): framed wall art, براويز and 3- and 5-panel تابلوهات for every room. Delivery to every governorate in Egypt, cash on delivery.',
     // shown on the site in Arabic (footer) and used in search snippets
-    arabicLine: 'تي إم إل ستور (The Mother Lord): براويز وتابلوهات ولوحات حائط مودرن — برواز قطعة واحدة، تابلوهات ٣ و٥ قطع، وتصميم ومقاس حسب الطلب. توصيل لكل محافظات مصر والدفع عند الاستلام.',
+    arabicLine: 'تي إم إل ستور (The Mother Lode): براويز وتابلوهات ولوحات حائط مودرن — برواز قطعة واحدة، تابلوهات ٣ و٥ قطع، وتصميم ومقاس حسب الطلب. توصيل لكل محافظات مصر والدفع عند الاستلام.',
     arabicShort: 'براويز وتابلوهات حائط — توصيل لكل محافظات مصر والدفع عند الاستلام.',
     keywords: [
       'براويز', 'برواز', 'تابلوهات', 'تابلوه', 'تابلوهات حائط', 'لوحات حائط', 'براويز حائط', 'تابلوهات مودرن', 'تابلوه ٣ قطع', 'تابلوه ٥ قطع',
       'براويز صور', 'ديكور حائط', 'براويز اونلاين مصر', 'تابلوهات القاهرة', 'wall art Egypt', 'framed wall art', 'multi-panel wall art',
-      'canvas frames Egypt', 'TML Store', 'The Mother Lord',
+      'canvas frames Egypt', 'TML Store', 'The Mother Lode',
     ],
     ogImage: '',               // picture for link previews (WhatsApp, Facebook); blank = a featured product's photo
     googleVerification: '',    // Google Search Console → HTML tag → the content="…" value (or verify by DNS instead)
@@ -48,14 +49,16 @@ const storeConfig = {
 
   // ---- Contact (leave blank to hide) ---------------------------------
   contact: {
-    phone: '',                 // e.g. '+20 10 1234 5678'
-    whatsapp: '',              // international format, digits only, e.g. '201012345678'
-    email: '',
+    phone: '01066736752',      // for calls; a leading 0 is swapped for +phoneCountryCode in links
+    whatsapp: '201025309023',  // international format, digits only, e.g. '201012345678'
+    email: 'tmlstore128@gmail.com',
+    email2: 'Eslam.ipman@gmail.com', // optional second address
+    location: 'Online store',
   },
-  social: [
-    { label: 'Instagram', url: '' },
-    { label: 'TikTok', url: '' },
-    { label: 'Facebook', url: '' },
+  social: [                    // label must be Instagram, Facebook or TikTok to get its icon
+    { label: 'Instagram', url: 'https://www.instagram.com/thetmlstore/' },
+    { label: 'Facebook', url: 'https://www.facebook.com/tmlstore128' },
+    { label: 'TikTok', url: 'https://www.tiktok.com/@the_tmlstore' },
   ],
 
   // ---- Delivery ------------------------------------------------------
@@ -74,6 +77,7 @@ const storeConfig = {
     customOrders: true,        // "Request a custom piece" form + dashboard tab
     whatsappConfirm: true,     // "Confirm on WhatsApp" button after an order (needs contact.whatsapp)
     multiPanel: true,          // three/five-panel layouts. Turn off for a normal single-item shop.
+    reviews: true,             // customer reviews on the homepage (moving cards + "Write a review" form) + dashboard tab
   },
 
   // ---- Homepage copy -------------------------------------------------

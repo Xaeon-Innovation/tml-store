@@ -229,3 +229,9 @@ textarea.input{resize:vertical;line-height:1.5}
 .hero-preview .hp-h{font-family:'Bodoni Moda',Didot,Georgia,serif;font-size:26px;line-height:1.05;letter-spacing:-.01em}
 .hero-preview .small{color:#A8A49D;margin-top:6px}
 .hero-photo-adm img,.hero-photo-adm .craft-ph{aspect-ratio:16/9}
+
+/* reviews */
+.rv-row{display:grid;gap:10px;padding:16px 20px}
+.rv-row-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
+.rv-stars{color:#D69E00;letter-spacing:1px}
+.rv-stars-off{color:#D9D6CF}

@@ -78,6 +78,19 @@ create table if not exists public.site_content (
   updated_at timestamptz not null default now()
 );
 
+-- Customer reviews. Sent from the homepage through submit_review(); the owner
+-- publishes them in the dashboard. Only Published ones are public.
+create table if not exists public.reviews (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  region     text not null default '',
+  rating     int  not null check (rating between 1 and 5),
+  body       text not null,
+  status     text not null default 'Pending' check (status in ('Pending','Published','Hidden')),
+  created_at timestamptz not null default now()
+);
+create index if not exists reviews_created_idx on public.reviews (created_at desc);
+
 -- Who can open the dashboard. Add the owner after creating their login (see README).
 create table if not exists public.admins (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -249,7 +262,29 @@ begin
   return jsonb_build_object('ref', new_ref);
 end $$;
 
+-- p_review: {name, region, rating, body}. Always saved as Pending.
+create or replace function public.submit_review(p_review jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  r_name text := btrim(coalesce(p_review->>'name', ''));
+  r_region text := btrim(coalesce(p_review->>'region', ''));
+  r_rating text := coalesce(p_review->>'rating', '');
+  r_body text := btrim(coalesce(p_review->>'body', ''));
+begin
+  if length(r_name) < 1 or length(r_name) > 60 then raise exception 'invalid_name'; end if;
+  if length(r_region) > 80 then raise exception 'invalid_region'; end if;
+  if r_rating !~ '^[1-5]$' then raise exception 'invalid_rating'; end if;
+  if length(r_body) < 10 or length(r_body) > 600 then raise exception 'invalid_body'; end if;
+  -- no phone to rate-limit by, so: no repeats, and at most 20 waiting reviews from the last hour
+  if exists (select 1 from public.reviews where body = r_body) then raise exception 'invalid_duplicate'; end if;
+  if (select count(*) from public.reviews where status = 'Pending' and created_at > now() - interval '1 hour') >= 20 then
+    raise exception 'invalid_rate_limited';
+  end if;
+  insert into public.reviews (name, region, rating, body) values (r_name, r_region, r_rating::int, r_body);
+end $$;
+
 grant execute on function public.place_order(jsonb, jsonb, text) to anon, authenticated;
+grant execute on function public.submit_review(jsonb) to anon, authenticated;
 grant execute on function public.submit_custom_request(jsonb, text) to anon, authenticated;
 grant execute on function public.is_admin() to anon, authenticated;
 revoke execute on function public.price_custom_line(uuid, int, numeric) from public, anon;
@@ -262,11 +297,14 @@ alter table public.orders          enable row level security;
 alter table public.custom_requests enable row level security;
 alter table public.admins          enable row level security;
 alter table public.site_content    enable row level security;
+alter table public.reviews         enable row level security;
 
 grant select on public.collections, public.products, public.site_content to anon, authenticated;
 grant insert, update, delete on public.collections, public.products, public.site_content to authenticated;
 grant select, update on public.orders, public.custom_requests to authenticated;
 grant select on public.admins to authenticated;
+grant select on public.reviews to anon, authenticated;
+grant update, delete on public.reviews to authenticated;
 
 drop policy if exists "collections are public"      on public.collections;
 drop policy if exists "admins manage collections"   on public.collections;
@@ -279,6 +317,8 @@ drop policy if exists "admins update requests"      on public.custom_requests;
 drop policy if exists "see own admin row"           on public.admins;
 drop policy if exists "site content is public"      on public.site_content;
 drop policy if exists "admins manage site content"  on public.site_content;
+drop policy if exists "published reviews are public" on public.reviews;
+drop policy if exists "admins manage reviews"       on public.reviews;
 
 create policy "collections are public"      on public.collections for select using (true);
 create policy "admins manage collections"   on public.collections for all to authenticated using (public.is_admin()) with check (public.is_admin());
@@ -292,6 +332,9 @@ create policy "admins update requests"      on public.custom_requests for update
 create policy "see own admin row"           on public.admins for select to authenticated using (user_id = auth.uid());
 create policy "site content is public"      on public.site_content for select using (true);
 create policy "admins manage site content"  on public.site_content for all to authenticated using (public.is_admin()) with check (public.is_admin());
+-- No insert policy on reviews either: the public adds them through submit_review().
+create policy "published reviews are public" on public.reviews for select using (status = 'Published' or public.is_admin());
+create policy "admins manage reviews"       on public.reviews for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- ---------------------------------------------------------------- file storage
 -- references:     customers' images for custom requests (private, upload-only for the public)

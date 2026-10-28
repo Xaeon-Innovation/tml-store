@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import config from '../config/store.config.js';
+import { submitReview } from '../lib/api.js';
 import { money, plural } from '../lib/format.js';
 import { navigate } from '../lib/router.js';
-import { Art, Field, Glyph, Icon, ProductCard, fieldProps, matchCollection, visibleCollections } from './shared.jsx';
+import { Art, ErrorSummary, Field, Glyph, Icon, ProductCard, fieldProps, focusFirstError, matchCollection, visibleCollections } from './shared.jsx';
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -10,7 +11,7 @@ const pad = (n) => String(n).padStart(2, '0');
 // HOME
 // =====================================================================
 // heroContent: the hero as saved in the dashboard (overrides the same keys of config.home)
-export function Home({ products, collections, craft, heroContent }) {
+export function Home({ products, collections, craft, heroContent, reviews }) {
   const H = { ...config.home, ...(heroContent || {}) };
   const byId = (id) => products.find((p) => p.id === id);
   const hero = byId(H.heroProductId) || products.find((p) => p.featured) || products[0];
@@ -183,6 +184,8 @@ export function Home({ products, collections, craft, heroContent }) {
         </section>
       ) : null}
 
+      {config.features.reviews ? <Reviews reviews={reviews || []} label={num()} /> : null}
+
       {H.faq && H.faq.length ? (
         <section className="sec reveal" aria-labelledby="faq-h">
           <div className="wrap faq-grid">
@@ -200,6 +203,138 @@ export function Home({ products, collections, craft, heroContent }) {
         </section>
       ) : null}
     </>
+  );
+}
+
+// ---------- customer reviews: a row of cards that moves on its own, and a form to add one
+const Stars = ({ n, s }) => <span className="rv-stars" role="img" aria-label={n + ' out of 5 stars'}>{[1, 2, 3, 4, 5].map((i) => <Icon.star key={i} s={s} on={i <= n} />)}</span>;
+
+function ReviewCard({ r, hidden }) {
+  return (
+    <li className="rv-card" aria-hidden={hidden || undefined}>
+      <Stars n={r.rating} />
+      <p className="rv-body">“{r.body}”</p>
+      <p className="rv-who"><span>{r.name}</span>{r.region ? <span className="muted"> · {r.region}</span> : null}</p>
+    </li>
+  );
+}
+
+function Reviews({ reviews, label }) {
+  const [writing, setWriting] = useState(false);
+  const [paused, setPaused] = useState(false);
+  // with only a couple of reviews a moving row looks empty, so they just sit side by side
+  const moving = reviews.length >= 3;
+  const avg = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
+  return (
+    <section className="sec reveal rv-sec" aria-labelledby="rv-h">
+      <div className="wrap">
+        <div className="sec-head">
+          <p className="label">{label} — Reviews</p>
+          <h2 id="rv-h" className="display h2">What our <em>customers say</em></h2>
+          {reviews.length ? <p className="rv-avg"><Stars n={Math.round(avg)} s={18} /><span>{avg.toFixed(1)} out of 5 · {plural(reviews.length, 'review')}</span></p>
+            : <p className="muted">No reviews yet. Bought from us? Be the first to share how it went.</p>}
+        </div>
+      </div>
+      {reviews.length ? (
+        <div className={'rv-marquee' + (moving ? ' is-moving' : '') + (paused ? ' is-paused' : '')} style={{ '--rv-dur': reviews.length * 8 + 's' }}>
+          <ul className="rv-track" aria-label="Customer reviews">
+            {reviews.map((r) => <ReviewCard key={r.id} r={r} />)}
+            {moving ? reviews.map((r) => <ReviewCard key={'copy-' + r.id} r={r} hidden />) : null}
+          </ul>
+        </div>
+      ) : null}
+      <div className="wrap rv-foot">
+        {moving ? (
+          <button className="rv-pause" type="button" onClick={() => setPaused((x) => !x)} aria-pressed={paused}>
+            {paused ? <Icon.play /> : <Icon.pause />}{paused ? 'Play reviews' : 'Pause reviews'}
+          </button>
+        ) : null}
+        {writing ? <ReviewForm onClose={() => setWriting(false)} /> : <button className="btn btn-ghost" type="button" onClick={() => setWriting(true)}>Write a review</button>}
+      </div>
+    </section>
+  );
+}
+
+function ReviewForm({ onClose }) {
+  const [v, setV] = useState({ name: '', region: '', rating: 0, body: '', company: '' });
+  const [e, setE] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState('');
+  const [sent, setSent] = useState(false);
+  const [hover, setHover] = useState(0);
+  const first = useRef(null);
+  useEffect(() => { if (first.current) first.current.focus(); }, []);
+  const set = (k) => (ev) => {
+    const val = k === 'rating' ? Number(ev.target.value) : ev.target.value;
+    setV((s) => ({ ...s, [k]: val }));
+    setE((er) => { if (!er[k]) return er; const n = { ...er }; delete n[k]; return n; });
+  };
+  const submit = async (ev) => {
+    ev.preventDefault();
+    if (busy) return;
+    const errs = {};
+    if (!v.rating) errs.rating = 'Choose a star rating.';
+    if (v.body.trim().length < 10) errs.body = 'Write a few words about your experience (at least a sentence).';
+    if (!v.name.trim()) errs.name = 'Enter your name.';
+    setE(errs);
+    if (Object.keys(errs).length) { focusFirstError(errs, 'rv'); return; }
+    if (v.company) { setSent(true); return; }
+    setBusy(true); setFailed('');
+    try {
+      await submitReview({ name: v.name.trim(), region: v.region.trim(), rating: v.rating, body: v.body.trim() });
+      setSent(true);
+    } catch (err) {
+      setFailed(err.message || 'Something went wrong. Please try again.');
+      setBusy(false);
+    }
+  };
+  if (sent) {
+    return (
+      <div className="rv-form rv-thanks" role="status">
+        <Icon.check s={22} />
+        <div><p className="rv-thanks-t">Thank you for your review!</p><p className="muted">It will appear here once we’ve checked it.</p></div>
+      </div>
+    );
+  }
+  const shown = hover || v.rating;
+  return (
+    <form className="form rv-form" noValidate onSubmit={submit} aria-labelledby="rv-form-h">
+      <h3 id="rv-form-h" className="rv-form-h">Write a review</h3>
+      <ErrorSummary errors={e} prefix="rv" />
+      {failed ? <p className="form-err" role="alert">{failed}</p> : null}
+      <div className={'field' + (e.rating ? ' has-err' : '')}>
+        <span className="flabel" id="rv-rating-l">Your rating</span>
+        <div className="rv-rate" role="radiogroup" id="rv-rating" aria-labelledby="rv-rating-l" aria-describedby={e.rating ? 'rv-rating-err' : undefined} onMouseLeave={() => setHover(0)}>
+          {[1, 2, 3, 4, 5].map((i) => (
+            <label key={i} className={'rv-star' + (i <= shown ? ' is-on' : '')} onMouseEnter={() => setHover(i)}>
+              <input className="sr" type="radio" name="rv-rating" value={i} checked={v.rating === i} onChange={set('rating')} ref={i === 1 ? first : undefined} />
+              <Icon.star s={30} on={i <= shown} />
+              <span className="sr">{plural(i, 'star')}</span>
+            </label>
+          ))}
+        </div>
+        {e.rating ? <p className="err" id="rv-rating-err">{e.rating}</p> : null}
+      </div>
+      <Field id="rv-body" label="Your review" error={e.body} hint={v.body.length + ' / 600'}>
+        <textarea className="input" rows={4} maxLength={600} {...fieldProps('rv-body', e.body, true)} value={v.body} onChange={set('body')} placeholder="How was the piece, the delivery, the service?" />
+      </Field>
+      <div className="two">
+        <Field id="rv-name" label="Name" error={e.name} hint="Shown with your review, e.g. “Mariam A.”">
+          <input className="input" type="text" autoComplete="given-name" maxLength={60} {...fieldProps('rv-name', e.name, true)} value={v.name} onChange={set('name')} />
+        </Field>
+        <Field id="rv-region" label="City" optional>
+          <input className="input" type="text" autoComplete="address-level2" maxLength={80} {...fieldProps('rv-region')} value={v.region} onChange={set('region')} />
+        </Field>
+      </div>
+      <label className="hp" aria-hidden="true">Company<input tabIndex={-1} autoComplete="off" value={v.company} onChange={set('company')} /></label>
+      <div className="rv-actions">
+        <button className="btn btn-primary" type="submit" disabled={busy} aria-busy={busy}>
+          {busy ? <><span className="spinner" aria-hidden="true" />Sending…</> : 'Send review'}
+        </button>
+        <button className="btn btn-ghost" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+      <p className="submit-note">Reviews appear after we check them.</p>
+    </form>
   );
 }
 
