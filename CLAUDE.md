@@ -63,6 +63,7 @@ supabase/functions/notify-owner/index.ts ← emails owner via Resend, triggered 
 - Public can't insert into `orders`/`custom_requests` directly. They go through `place_order()` / `submit_custom_request()` (SECURITY DEFINER), which validate input, **compute prices from the products table** (browser prices are never trusted), clamp qty 1–10, max 20 lines, rate-limit (5 orders / 3 requests per phone per hour), and generate refs like `TML-261026-4821` (prefix from config, sanitised to 1–5 capitals).
 - A trigger sets `completed_at` when the status becomes Completed, clears it otherwise, and blocks changing ref/items/subtotal/created_at on update.
 - RLS: public reads visible products and all collections; only `is_admin()` users read/update orders, requests and reference images. Reference images bucket is private (signed URLs in the dashboard); product-images bucket is public.
+- Review 2026-10-28: rate limits compare phone digits only; `anon` has insert/update/delete/truncate revoked on all our tables (Supabase grants them by default; RLS already blocked them, verified live: 0 rows touched); reference uploads must be named `<uuid>/<file>`; a duplicate review is quietly accepted (no "already exists" leak); `public/_headers` + the Worker send nosniff / Referrer-Policy / X-Frame-Options (dashboard: DENY + frame-ancestors 'none' + noindex). Live Supabase checked: public sign-ups disabled.
 - Honeypot field (`company`) on both forms. The README says to disable public sign-ups in Supabase Auth.
 
 ## Dashboard metrics

@@ -29,7 +29,8 @@ export function setRouterMode(m) {
 }
 
 export function parseHash(hash) {
-  const parts = (hash || '').replace(/^#?\/?/, '').split('?')[0].split('/').filter(Boolean).map(decodeURIComponent);
+  // a malformed link (/p/%E0) must not throw and blank the page; keep the raw text instead
+  const parts = (hash || '').replace(/^#?\/?/, '').split('?')[0].split('/').filter(Boolean).map((s) => { try { return decodeURIComponent(s); } catch (e) { return s; } });
   return { name: parts[0] || 'home', arg: parts[1] || '' };
 }
 const current = () => parseHash(mode === 'path' ? window.location.pathname : window.location.hash);

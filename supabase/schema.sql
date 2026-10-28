@@ -159,7 +159,9 @@ begin
   if jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) < 1 or jsonb_array_length(p_items) > 20 then raise exception 'invalid_items'; end if;
 
   -- simple flood protection: at most 5 orders per phone number per hour
-  if (select count(*) from public.orders where phone = c_phone and created_at > now() - interval '1 hour') >= 5 then
+  -- (digits only, so "010 1234 5678" and "01012345678" count as the same number)
+  if (select count(*) from public.orders where regexp_replace(phone, '\D', '', 'g') = regexp_replace(c_phone, '\D', '', 'g')
+      and created_at > now() - interval '1 hour') >= 5 then
     raise exception 'invalid_rate_limited';
   end if;
 
@@ -247,7 +249,8 @@ begin
   foreach pth in array paths loop
     if pth !~ '^[0-9a-f-]{36}/[A-Za-z0-9._-]{1,60}$' then raise exception 'invalid_images'; end if;
   end loop;
-  if (select count(*) from public.custom_requests where phone = r_phone and created_at > now() - interval '1 hour') >= 3 then
+  if (select count(*) from public.custom_requests where regexp_replace(phone, '\D', '', 'g') = regexp_replace(r_phone, '\D', '', 'g')
+      and created_at > now() - interval '1 hour') >= 3 then
     raise exception 'invalid_rate_limited';
   end if;
 
@@ -275,8 +278,9 @@ begin
   if length(r_region) > 80 then raise exception 'invalid_region'; end if;
   if r_rating !~ '^[1-5]$' then raise exception 'invalid_rating'; end if;
   if length(r_body) < 10 or length(r_body) > 600 then raise exception 'invalid_body'; end if;
-  -- no phone to rate-limit by, so: no repeats, and at most 20 waiting reviews from the last hour
-  if exists (select 1 from public.reviews where body = r_body) then raise exception 'invalid_duplicate'; end if;
+  -- no phone to rate-limit by, so: no repeats, and at most 20 waiting reviews from the last hour.
+  -- A repeat is quietly accepted, so the form can't be used to find out what others wrote.
+  if exists (select 1 from public.reviews where body = r_body) then return; end if;
   if (select count(*) from public.reviews where status = 'Pending' and created_at > now() - interval '1 hour') >= 20 then
     raise exception 'invalid_rate_limited';
   end if;
@@ -299,6 +303,10 @@ alter table public.admins          enable row level security;
 alter table public.site_content    enable row level security;
 alter table public.reviews         enable row level security;
 
+-- Supabase grants the public role write access to every table by default; RLS already blocks it,
+-- but take it away too so a future policy mistake can't open a table to the public.
+revoke insert, update, delete, truncate on public.collections, public.products, public.orders, public.custom_requests,
+  public.site_content, public.admins, public.reviews from anon;
 grant select on public.collections, public.products, public.site_content to anon, authenticated;
 grant insert, update, delete on public.collections, public.products, public.site_content to authenticated;
 grant select, update on public.orders, public.custom_requests to authenticated;
@@ -349,8 +357,9 @@ on conflict (id) do nothing;
 drop policy if exists "anyone can upload references"  on storage.objects;
 drop policy if exists "admins read references"        on storage.objects;
 drop policy if exists "admins manage product images"  on storage.objects;
+-- only "<random id>/<file name>", the shape the custom-request form uses (submit_custom_request checks the same)
 create policy "anyone can upload references" on storage.objects for insert to anon, authenticated
-  with check (bucket_id = 'references');
+  with check (bucket_id = 'references' and name ~ '^[0-9a-f-]{36}/[A-Za-z0-9._-]{1,60}$');
 create policy "admins read references" on storage.objects for select to authenticated
   using (bucket_id = 'references' and public.is_admin());
 create policy "admins manage product images" on storage.objects for all to authenticated

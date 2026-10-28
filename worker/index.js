@@ -42,6 +42,10 @@ export default {
     headers.set('Content-Type', 'text/html; charset=utf-8');
     headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
     headers.delete('ETag');
+    // same as public/_headers, which Cloudflare doesn't apply to pages this Worker builds
+    headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    headers.set('X-Frame-Options', 'SAMEORIGIN');
     if (spareHost || m.noindex) headers.set('X-Robots-Tag', 'noindex');
     return new Response(request.method === 'HEAD' ? null : out.body, { status: m.status, headers });
   },

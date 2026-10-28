@@ -64,8 +64,7 @@ export async function submitReview(fields) {
 
 function friendly(error) {
   const m = String((error && error.message) || '');
-  if (/invalid_duplicate/.test(m)) return new Error('We already have this review. Thank you!');
-  if (/rate_limited/.test(m)) return new Error('We’re getting a lot of reviews right now. Please try again in an hour.');
+  if (/rate_limited/.test(m)) return new Error('Too many requests in a short time. Please try again in an hour, or contact us directly.');
   if (/out_of_stock/.test(m)) return new Error('A piece in your bag has just sold out. Remove it from your bag and try again.');
   if (/invalid_|missing_/.test(m)) return new Error('Some details were not accepted. Check the form and try again.');
   if (/Failed to fetch|NetworkError/i.test(m)) return new Error('No connection. Check your internet and try again.');
@@ -132,7 +131,7 @@ export async function requestImageUrls(paths) {
   if (isDemo || !paths || !paths.length) return [];
   const { data, error } = await supabase.storage.from('references').createSignedUrls(paths, 3600);
   if (error) return [];
-  return data.map((d) => d.signedUrl).filter(Boolean);
+  return data.map((d) => d.signedUrl || null); // same order as `paths`; null where a link failed
 }
 
 // All reviews, any status (dashboard).
@@ -369,7 +368,7 @@ const demo = {
   reviews() { return this.load('demo_reviews_v1', seedReviews); },
   async submitReview(fields) {
     await wait(600);
-    if (this.reviews().some((r) => r.body === fields.body)) throw new Error('We already have this review. Thank you!');
+    if (this.reviews().some((r) => r.body === fields.body)) return; // like the database: a repeat is quietly accepted
     this.save('demo_reviews_v1', [{ id: crypto.randomUUID(), ...fields, status: 'Pending', created_at: new Date().toISOString() }].concat(this.reviews()));
   },
   async setReviewStatus(id, status) {
